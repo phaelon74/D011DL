@@ -58,6 +58,34 @@ app.get('/', checkAuth, async (req, res) => {
     }
 });
 
+app.post('/start-download', checkAuth, async (req, res) => {
+    try {
+        const { authorRepo } = req.body;
+        const [author, repo] = authorRepo.split('/');
+
+        if (!author || !repo) {
+            // Handle error: invalid format
+            return res.redirect('/');
+        }
+        
+        const payload = {
+            author,
+            repo,
+            revision: 'main', // Default to main branch
+            selection: [{ path: '.', type: 'dir' }] // Indicates a full repo download
+        };
+
+        await axios.post(`${API_BASE_URL}/downloads`, payload, {
+            headers: { Authorization: `Bearer ${res.locals.token}` }
+        });
+
+        res.redirect('/');
+    } catch (error) {
+        console.error("Failed to start download", error);
+        res.redirect('/'); // Redirect home even on error
+    }
+});
+
 // Placeholder for other routes
 app.get('/models/:id', checkAuth, (req, res) => { res.send('Model details coming soon'); });
 app.get('/downloads', checkAuth, (req, res) => { res.send('Downloads page coming soon'); });

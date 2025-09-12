@@ -4,22 +4,20 @@ import path from 'path';
 
 const execPromise = promisify(exec);
 
-export async function downloadFile(
+export async function downloadRepo(
     author: string,
     repo: string,
     revision: string,
-    filePath: string,
     destinationRoot: string
 ): Promise<{ stdout: string; stderr: string }> {
     const repoId = `${author}/${repo}`;
     const destinationDir = path.join(destinationRoot, author, repo, revision);
     
+    // Using the user-provided command structure
     const command = [
-        'huggingface-cli',
+        'hf',
         'download',
         repoId,
-        filePath,
-        '--repo-type', 'model',
         '--revision', revision,
         '--local-dir', `"${destinationDir}"`,
         '--local-dir-use-symlinks', 'False',
@@ -31,7 +29,7 @@ export async function downloadFile(
         const result = await execPromise(command, { env: process.env });
         return result;
     } catch (error) {
-        console.error(`Error downloading ${filePath} from ${repoId}:`, error);
+        console.error(`Error downloading repo ${repoId}:`, error);
         throw error;
     }
 }

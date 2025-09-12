@@ -4,10 +4,10 @@
     <h1>Dashboard</h1>
     <a href="/logout">Logout</a>
 
-    <h2>Paste Hugging Face URL</h2>
-    <form id="hf-url-form">
-        <input type="text" id="hf-url" placeholder="https://huggingface.co/..." required>
-        <button type="submit">Parse URL</button>
+    <h2>Download Hugging Face Model</h2>
+    <form action="/start-download" method="POST">
+        <input type="text" name="authorRepo" placeholder="e.g., TheDrummer/Behemoth-X-123B-v2" required style="width: 300px;">
+        <button type="submit">Download</button>
     </form>
     <div id="parsed-result"></div>
     <div id="tree-container"></div>
