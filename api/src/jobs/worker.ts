@@ -34,8 +34,9 @@ export async function processDownloadJob(jobId: string) {
         await pool.query("UPDATE downloads SET status = 'succeeded', finished_at = now(), progress_pct = 100 WHERE id = $1", [jobId]);
         await pool.query("UPDATE models SET is_downloaded = true, updated_at = now() WHERE id = $1", [model_id]);
 
-    } catch (error) {
+    } catch (error: any) {
         console.error(`Job ${jobId} failed`, error);
-        await pool.query("UPDATE downloads SET status = 'failed', finished_at = now(), log = $1 WHERE id = $2", [(error as Error).message, jobId]);
+        const errorMessage = error.stderr || error.message || 'An unknown error occurred.';
+        await pool.query("UPDATE downloads SET status = 'failed', finished_at = now(), log = $1 WHERE id = $2", [errorMessage, jobId]);
     }
 }

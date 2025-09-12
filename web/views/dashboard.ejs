@@ -28,7 +28,15 @@
                     <td><%= model.author %></td>
                     <td><%= model.repo %></td>
                     <td><%= model.revision %></td>
-                    <td><%= model.is_downloaded ? 'Downloaded' : 'Pending' %></td>
+                    <td>
+                        <span class="status-<%= model.status %>"><%= model.status %></span>
+                        <% if (model.status === 'failed') { %>
+                            <div class="error-log" title="<%= model.log %>">?</div>
+                            <form action="/retry-download/<%= model.download_id %>" method="POST" style="display: inline;">
+                                <button type="submit">Retry</button>
+                            </form>
+                        <% } %>
+                    </td>
                 </tr>
             <% }) %>
         </tbody>

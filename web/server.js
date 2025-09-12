@@ -86,6 +86,19 @@ app.post('/start-download', checkAuth, async (req, res) => {
     }
 });
 
+app.post('/retry-download/:id', checkAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await axios.post(`${API_BASE_URL}/downloads/${id}/retry`, {}, {
+            headers: { Authorization: `Bearer ${res.locals.token}` }
+        });
+        res.redirect('/');
+    } catch (error) {
+        console.error("Failed to retry download", error);
+        res.redirect('/');
+    }
+});
+
 // Placeholder for other routes
 app.get('/models/:id', checkAuth, (req, res) => { res.send('Model details coming soon'); });
 app.get('/downloads', checkAuth, (req, res) => { res.send('Downloads page coming soon'); });

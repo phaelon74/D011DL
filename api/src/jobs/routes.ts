@@ -81,6 +81,44 @@ const downloadsRoutes = async (server: FastifyInstance) => {
             reply.code(500).send({ message: 'Internal Server Error' });
         }
     });
+
+    // Retry download job
+    const retryParamsSchema = z.object({ id: z.string().uuid() });
+    server.post('/downloads/:id/retry', { onRequest: [server.authenticate] }, async (request: FastifyRequest, reply) => {
+        try {
+            const { id } = retryParamsSchema.parse(request.params);
+
+            // Find the original failed job to get its details
+            const originalJobRes = await pool.query('SELECT model_id FROM downloads WHERE id = $1', [id]);
+            if (originalJobRes.rows.length === 0) {
+                return reply.code(404).send({ message: 'Original job not found' });
+            }
+            const { model_id } = originalJobRes.rows[0];
+            const userId = request.user?.id;
+            
+            // Re-use the same selection from the original job
+            const originalSelectionRes = await pool.query('SELECT selection_json FROM downloads WHERE id = $1', [id]);
+            const selection = originalSelectionRes.rows[0].selection_json;
+
+            // Create a new download job record
+            const newDownloadRes = await pool.query(
+                `INSERT INTO downloads (model_id, user_id, selection_json, status) 
+                 VALUES ($1, $2, $3, 'queued')
+                 RETURNING id`,
+                [model_id, userId, selection]
+            );
+            const newDownloadId = newDownloadRes.rows[0].id;
+            
+            // Add the new job to the queue
+            queue.add(() => processDownloadJob(newDownloadId));
+
+            reply.code(202).send({ new_download_id: newDownloadId, status: 'queued' });
+
+        } catch (error) {
+            console.error(error);
+            reply.code(500).send({ message: 'Internal Server Error' });
+        }
+    });
 };
 
 export default downloadsRoutes;
