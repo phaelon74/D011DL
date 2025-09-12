@@ -4,9 +4,10 @@ RUN pip3 install huggingface-hub --break-system-packages
 RUN git lfs install
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install
 COPY . .
 RUN npm run build
+RUN npm prune --production
 ENV NODE_ENV=production
 EXPOSE 32002
 CMD ["node", "dist/index.js"]
