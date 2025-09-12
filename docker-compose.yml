@@ -7,9 +7,10 @@ services:
     env_file: .env
     volumes:
       - /media/models:/media/models
-    networks: [modelnet]
+    networks:
+      - modelnet
     ports:
-      - "32002:32002"   # publish if you want external/API access (Android)
+      - "32002:32002"
 
   web:
     build:
@@ -18,10 +19,12 @@ services:
     env_file: .env
     environment:
       - API_BASE_URL=http://api:32002
-    depends_on: [api]
+    depends_on:
+      - api
     volumes:
       - /media/models:/media/models:ro
-    networks: [modelnet]
+    networks:
+      - modelnet
     ports:
       - "32001:32001"
 
