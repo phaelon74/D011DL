@@ -8,24 +8,12 @@ import { getModelFiles } from '../db/filesRepo';
 
 const hfRoutes = async (server: FastifyInstance) => {
 
-    // Middleware to check for JWT on protected routes
-    const checkJwt = async (request: FastifyRequest, reply: any) => {
-        try {
-            const authHeader = request.headers.authorization;
-            if (!authHeader || !authHeader.startsWith('Bearer ')) {
-                return reply.code(401).send({ message: 'Unauthorized' });
-            }
-            const token = authHeader.substring(7);
-            const decoded = server.jwt.verify(token);
-            request.user = decoded as any;
-        } catch (err) {
-            reply.code(401).send({ message: 'Unauthorized' });
-        }
-    };
+    // All routes in this plugin are protected
+    server.addHook('onRequest', server.authenticate);
 
     // Parse URL
     const parseUrlBodySchema = z.object({ url: z.string().url() });
-    server.post('/hf/parse-url', { onRequest: [checkJwt] }, async (request, reply) => {
+    server.post('/hf/parse-url', async (request, reply) => {
         try {
             const { url } = parseUrlBodySchema.parse(request.body);
             const parsed = parseHfUrl(url);
@@ -40,7 +28,7 @@ const hfRoutes = async (server: FastifyInstance) => {
 
     // Get Refs (Branches/Tags) - Mock for now from tree
     const refsQuerySchema = z.object({ author: z.string(), repo: z.string() });
-     server.get('/hf/refs', { onRequest: [checkJwt] }, async (request, reply) => {
+     server.get('/hf/refs', async (request, reply) => {
         try {
             const { author, repo } = refsQuerySchema.parse(request.query);
             // This is a simplified version. A full implementation would use the HF API to get refs.
@@ -60,7 +48,7 @@ const hfRoutes = async (server: FastifyInstance) => {
         repo: z.string(),
         revision: z.string().optional().default('main'),
     });
-    server.get('/hf/tree', { onRequest: [checkJwt] }, async (request, reply) => {
+    server.get('/hf/tree', async (request, reply) => {
         try {
             const { author, repo, revision } = treeQuerySchema.parse(request.query);
             const files = await listHfTree(author, repo, revision);
@@ -74,13 +62,13 @@ const hfRoutes = async (server: FastifyInstance) => {
     });
     
     // DB routes
-    server.get('/db/models', { onRequest: [checkJwt] }, async (request, reply) => {
+    server.get('/db/models', async (request, reply) => {
         const models = await getModels();
         reply.send(models);
     });
 
     const modelFilesParamsSchema = z.object({ id: z.string().uuid() });
-    server.get('/db/models/:id/files', { onRequest: [checkJwt] }, async (request, reply) => {
+    server.get('/db/models/:id/files', async (request, reply) => {
         try {
             const { id } = modelFilesParamsSchema.parse(request.params);
             const files = await getModelFiles(id);

@@ -11,6 +11,14 @@ server.register(fastifyJwt, {
     secret: process.env.JWT_SECRET || 'supersecret',
 });
 
+server.decorate("authenticate", async function(request: any, reply: any) {
+    try {
+      await request.jwtVerify()
+    } catch (err) {
+      reply.send(err)
+    }
+});
+
 server.register(authRoutes);
 server.register(hfRoutes);
 server.register(downloadsRoutes);

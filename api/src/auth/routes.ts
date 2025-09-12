@@ -1,10 +1,7 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { createUser, findUserByUsername } from './service';
 import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
 import { z } from 'zod';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'replace_me';
 
 const authRoutes = async (server: FastifyInstance) => {
     // Register
@@ -46,9 +43,7 @@ const authRoutes = async (server: FastifyInstance) => {
                 return reply.code(401).send({ message: 'Invalid credentials' });
             }
 
-            const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, {
-                expiresIn: '1h',
-            });
+            const token = server.jwt.sign({ id: user.id, username: user.username });
             
             const { password_hash, ...userWithoutPassword } = user;
 
@@ -64,19 +59,7 @@ const authRoutes = async (server: FastifyInstance) => {
 
     // Me (Protected)
     server.get('/auth/me', {
-        onRequest: [async (request, reply) => {
-            try {
-                const authHeader = request.headers.authorization;
-                if (!authHeader || !authHeader.startsWith('Bearer ')) {
-                    return reply.code(401).send({ message: 'Unauthorized' });
-                }
-                const token = authHeader.substring(7);
-                const decoded = jwt.verify(token, JWT_SECRET);
-                request.user = decoded as any;
-            } catch (err) {
-                reply.code(401).send({ message: 'Unauthorized' });
-            }
-        }]
+        onRequest: [server.authenticate]
     }, async (request: FastifyRequest, reply) => {
         reply.send(request.user);
     });

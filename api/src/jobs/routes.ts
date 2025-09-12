@@ -5,17 +5,8 @@ import queue from './queue';
 import { processDownloadJob } from './worker';
 
 const downloadsRoutes = async (server: FastifyInstance) => {
-    // Middleware to check for JWT
-     const checkJwt = async (request: FastifyRequest, reply: any) => {
-        try {
-            const token = request.headers.authorization?.substring(7);
-            if (!token) throw new Error('No token');
-            const decoded = server.jwt.verify(token);
-            request.user = decoded as any;
-        } catch (err) {
-            reply.code(401).send({ message: 'Unauthorized' });
-        }
-    };
+    // All routes in this plugin are protected
+    server.addHook('onRequest', server.authenticate);
     
     // Create download job
     const createDownloadBodySchema = z.object({
@@ -28,7 +19,7 @@ const downloadsRoutes = async (server: FastifyInstance) => {
         }))
     });
 
-    server.post('/downloads', { onRequest: [checkJwt] }, async (request: FastifyRequest, reply) => {
+    server.post('/downloads', async (request: FastifyRequest, reply) => {
         try {
             const { author, repo, revision, selection } = createDownloadBodySchema.parse(request.body);
             const userId = request.user?.id;
@@ -69,7 +60,7 @@ const downloadsRoutes = async (server: FastifyInstance) => {
 
     // Get download job status
     const getStatusParamsSchema = z.object({ id: z.string().uuid() });
-    server.get('/downloads/:id', { onRequest: [checkJwt] }, async (request, reply) => {
+    server.get('/downloads/:id', async (request, reply) => {
         try {
             const { id } = getStatusParamsSchema.parse(request.params);
             const res = await pool.query(
