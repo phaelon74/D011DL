@@ -105,7 +105,7 @@ const downloadsRoutes = async (server: FastifyInstance) => {
                 `INSERT INTO downloads (model_id, user_id, selection_json, status) 
                  VALUES ($1, $2, $3, 'queued')
                  RETURNING id`,
-                [model_id, userId, selection]
+                [model_id, userId, JSON.stringify(selection)]
             );
             const newDownloadId = newDownloadRes.rows[0].id;
             
