@@ -1,12 +1,9 @@
 import fastify from 'fastify';
 import fastifyJwt from '@fastify/jwt';
-import dotenv from 'dotenv';
 
 import authRoutes from './auth/routes';
 import hfRoutes from './hf/routes';
 import downloadsRoutes from './jobs/routes';
-
-dotenv.config({ path: '../.env' });
 
 const server = fastify({ logger: true });
 

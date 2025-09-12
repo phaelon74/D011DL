@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { parseHfUrl } from './parse';
 import { listHfTree } from './listTree';
 import { downloadFile } from './download';
-import { getModels, getModelFiles } from '../db/modelsRepo';
+import { getModels } from '../db/modelsRepo';
+import { getModelFiles } from '../db/filesRepo';
 
 // Define a type for our authenticated request
 interface AuthRequest extends FastifyRequest {

@@ -1,6 +1,6 @@
 import pool from '../db/pool';
-import { downloadFile } from '../hf/download.ts';
-import { listHfTree } from '../hf/listTree.ts';
+import { downloadFile } from '../hf/download';
+import { listHfTree } from '../hf/listTree';
 import path from 'path';
 
 const STORAGE_ROOT = process.env.STORAGE_ROOT || '/media/models/models';
