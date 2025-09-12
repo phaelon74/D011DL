@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyRequest } from 'fastify';
 import { createUser, findUserByUsername } from './service';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -72,13 +72,13 @@ const authRoutes = async (server: FastifyInstance) => {
                 }
                 const token = authHeader.substring(7);
                 const decoded = jwt.verify(token, JWT_SECRET);
-                (request as any).user = decoded;
+                request.user = decoded as any;
             } catch (err) {
                 reply.code(401).send({ message: 'Unauthorized' });
             }
         }]
-    }, async (request, reply) => {
-        reply.send((request as any).user);
+    }, async (request: FastifyRequest, reply) => {
+        reply.send(request.user);
     });
 };
 

@@ -4,18 +4,14 @@ import pool from '../db/pool';
 import queue from './queue';
 import { processDownloadJob } from './worker';
 
-interface AuthRequest extends FastifyRequest {
-    user?: { id: string; username:string };
-}
-
 const downloadsRoutes = async (server: FastifyInstance) => {
     // Middleware to check for JWT
-     const checkJwt = async (request: AuthRequest, reply: any) => {
+     const checkJwt = async (request: FastifyRequest, reply: any) => {
         try {
             const token = request.headers.authorization?.substring(7);
             if (!token) throw new Error('No token');
             const decoded = server.jwt.verify(token);
-            request.user = decoded as { id: string; username: string };
+            request.user = decoded as any;
         } catch (err) {
             reply.code(401).send({ message: 'Unauthorized' });
         }
@@ -32,7 +28,7 @@ const downloadsRoutes = async (server: FastifyInstance) => {
         }))
     });
 
-    server.post('/downloads', { onRequest: [checkJwt] }, async (request: AuthRequest, reply) => {
+    server.post('/downloads', { onRequest: [checkJwt] }, async (request: FastifyRequest, reply) => {
         try {
             const { author, repo, revision, selection } = createDownloadBodySchema.parse(request.body);
             const userId = request.user?.id;

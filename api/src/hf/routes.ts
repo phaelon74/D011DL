@@ -6,15 +6,10 @@ import { downloadFile } from './download';
 import { getModels } from '../db/modelsRepo';
 import { getModelFiles } from '../db/filesRepo';
 
-// Define a type for our authenticated request
-interface AuthRequest extends FastifyRequest {
-    user?: { id: string; username: string };
-}
-
 const hfRoutes = async (server: FastifyInstance) => {
 
     // Middleware to check for JWT on protected routes
-    const checkJwt = async (request: AuthRequest, reply: any) => {
+    const checkJwt = async (request: FastifyRequest, reply: any) => {
         try {
             const authHeader = request.headers.authorization;
             if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -22,7 +17,7 @@ const hfRoutes = async (server: FastifyInstance) => {
             }
             const token = authHeader.substring(7);
             const decoded = server.jwt.verify(token);
-            request.user = decoded as { id: string; username: string };
+            request.user = decoded as any;
         } catch (err) {
             reply.code(401).send({ message: 'Unauthorized' });
         }
