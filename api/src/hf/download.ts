@@ -19,9 +19,7 @@ export async function downloadRepo(
         'download',
         repoId,
         '--revision', revision,
-        '--local-dir', `"${destinationDir}"`,
-        '--local-dir-use-symlinks', 'False',
-        '--resume-download'
+        '--local-dir', `"${destinationDir}"`
     ].join(' ');
 
     try {
