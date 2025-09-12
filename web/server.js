@@ -41,19 +41,6 @@ app.post('/login', async (req, res) => {
     }
 });
 
-app.get('/register', (req, res) => {
-    res.render('register', { title: 'Register' });
-});
-
-app.post('/register', async (req, res) => {
-     try {
-        await axios.post(`${API_BASE_URL}/auth/register`, req.body);
-        res.redirect('/login');
-    } catch (error) {
-        res.render('register', { title: 'Register', error: 'Could not create account' });
-    }
-});
-
 app.get('/logout', (req, res) => {
     res.clearCookie('token');
     res.redirect('/login');

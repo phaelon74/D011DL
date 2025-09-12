@@ -4,25 +4,6 @@ import bcrypt from 'bcrypt';
 import { z } from 'zod';
 
 const authRoutes = async (server: FastifyInstance) => {
-    // Register
-    const registerBodySchema = z.object({
-        username: z.string(),
-        password: z.string(),
-    });
-    server.post('/auth/register', async (request, reply) => {
-        try {
-            const { username, password } = registerBodySchema.parse(request.body);
-            const user = await createUser({ username, password });
-            reply.code(201).send(user);
-        } catch (error) {
-            if (error instanceof z.ZodError) {
-                return reply.code(400).send({ message: 'Validation error', issues: error.issues });
-            }
-            console.error(error);
-            reply.code(500).send({ message: 'Internal Server Error' });
-        }
-    });
-
     // Login
     const loginBodySchema = z.object({
         username: z.string(),

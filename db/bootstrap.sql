@@ -66,5 +66,10 @@ CREATE TABLE IF NOT EXISTS downloads (
   log TEXT
 );
 
+-- Add a default user
+INSERT INTO users (username, password_hash)
+VALUES ('dload', crypt('Broccoli@2025', gen_salt('bf', 12)))
+ON CONFLICT (username) DO NOTHING;
+
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ":D011DLUSER";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ":D011DLUSER";
