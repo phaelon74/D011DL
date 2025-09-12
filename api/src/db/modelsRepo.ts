@@ -13,7 +13,7 @@ export async function getModels() {
             d.id as download_id
         FROM models m
         LEFT JOIN downloads d ON m.id = d.model_id
-        ORDER BY m.id, d.created_at DESC
+        ORDER BY m.id, d.started_at DESC
     `;
     const res = await pool.query(query);
     return res.rows;

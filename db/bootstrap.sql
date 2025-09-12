@@ -59,11 +59,12 @@ CREATE TABLE IF NOT EXISTS downloads (
   model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
   user_id UUID REFERENCES users(id),
   selection_json JSONB NOT NULL,
-  status TEXT NOT NULL DEFAULT 'queued',
+  status TEXT NOT NULL DEFAULT 'queued',  -- `queued|running|succeeded|failed|canceled`
   progress_pct NUMERIC(5,2) DEFAULT 0,
-  started_at TIMESTAMPTZ,
-  finished_at TIMESTAMPTZ,
-  log TEXT
+  started_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  finished_at TIMESTAMPTZ NULL,
+  log TEXT NULL
 );
 
 -- Add a default user
@@ -71,5 +72,5 @@ INSERT INTO users (username, password_hash)
 VALUES ('dload', crypt('Broccoli@2025', gen_salt('bf', 12)))
 ON CONFLICT (username) DO NOTHING;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ":D011DLUSER";
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ":D011DLUSER";
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "D011DLUSER";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "D011DLUSER";
