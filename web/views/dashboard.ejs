@@ -1,0 +1,38 @@
+<%- include('partials/header') %>
+
+<div class="container">
+    <h1>Dashboard</h1>
+    <a href="/logout">Logout</a>
+
+    <h2>Paste Hugging Face URL</h2>
+    <form id="hf-url-form">
+        <input type="text" id="hf-url" placeholder="https://huggingface.co/..." required>
+        <button type="submit">Parse URL</button>
+    </form>
+    <div id="parsed-result"></div>
+    <div id="tree-container"></div>
+
+    <h2>Tracked Models</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Author</th>
+                <th>Repo</th>
+                <th>Revision</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            <% models.forEach(model => { %>
+                <tr>
+                    <td><%= model.author %></td>
+                    <td><%= model.repo %></td>
+                    <td><%= model.revision %></td>
+                    <td><%= model.is_downloaded ? 'Downloaded' : 'Pending' %></td>
+                </tr>
+            <% }) %>
+        </tbody>
+    </table>
+</div>
+
+<%- include('partials/footer') %>

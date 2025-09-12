@@ -1,0 +1,30 @@
+version: "3.9"
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.api
+    env_file: .env
+    volumes:
+      - /media/models:/media/models
+    networks: [modelnet]
+    ports:
+      - "32002:32002"   # publish if you want external/API access (Android)
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.web
+    env_file: .env
+    environment:
+      - API_BASE_URL=http://api:32002
+    depends_on: [api]
+    volumes:
+      - /media/models:/media/models:ro
+    networks: [modelnet]
+    ports:
+      - "32001:32001"
+
+networks:
+  modelnet:
+    name: modelnet
