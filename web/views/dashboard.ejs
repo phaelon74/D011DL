@@ -25,9 +25,13 @@
             </tr>
         </thead>
         <tbody>
-            <% models.forEach(model => { %>
-                <% const shouldDisplay = (model.locations && model.locations.length > 0) || (model.is_downloaded && (!model.locations || model.locations.length === 0)) || model.download_id; %>
-                <% if (shouldDisplay) { %>
+            <% if (models && models.length > 0) { %>
+                <% models.forEach(model => { %>
+                    <% 
+                        // A model should be displayed if it has a location on disk, is marked as downloaded, or has any job associated with it.
+                        const shouldDisplay = (model.locations && model.locations.length > 0) || model.is_downloaded || model.job_id; 
+                    %>
+                    <% if(shouldDisplay) { %>
                     <tr>
                         <td><%= model.author %></td>
                         <td><%= model.repo %></td>
@@ -68,9 +72,9 @@
                         <td>
                             <% const isJobActive = job_status === 'running' || job_status === 'queued'; %>
 
-                            <% if (job_status === 'failed') { %>
+                            <% if (job_status === 'failed' && job_type === 'download') { %>
                                 <form method="POST" style="display: inline;">
-                                    <button type="submit" formaction="/retry-download/<%= model.download_id %>">Retry</button>
+                                    <button type="submit" formaction="/retry-download/<%= model.job_id %>">Retry</button>
                                 </form>
                             <% } %>
 
@@ -84,8 +88,9 @@
                             <% } %>
                         </td>
                     </tr>
-                <% } %>
-            <% }) %>
+                    <% } %>
+                <% }) %>
+            <% } %>
         </tbody>
     </table>
 </div>
