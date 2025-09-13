@@ -4,6 +4,8 @@ import pool from '../db/pool';
 import queue from './queue';
 import { processDownloadJob } from './worker';
 
+const STORAGE_ROOT = process.env.STORAGE_ROOT || '/media/models';
+
 const downloadsRoutes = async (server: FastifyInstance) => {
     // All routes in this plugin are protected
     server.addHook('onRequest', server.authenticate);
@@ -23,7 +25,7 @@ const downloadsRoutes = async (server: FastifyInstance) => {
         try {
             const { author, repo, revision, selection } = createDownloadBodySchema.parse(request.body);
             const userId = request.user?.id;
-            const rootPath = `${process.env.STORAGE_ROOT}/${author}/${repo}/${revision}`;
+            const rootPath = `${STORAGE_ROOT}/${author}/${repo}/${revision}`;
 
             // 1. Upsert model
             const modelRes = await pool.query(

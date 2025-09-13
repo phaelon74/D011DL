@@ -38,7 +38,13 @@ const modelRoutes = async (server: FastifyInstance) => {
             const model = modelRes.rows[0];
 
             // Basic check to see if the source exists
-            const sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
+            let sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
+
+            // Normalize the path to handle any inconsistencies (like '//')
+            if (sourcePath) {
+                sourcePath = path.normalize(sourcePath);
+            }
+
             if (!sourcePath || !await checkExists(sourcePath)) {
                 return reply.code(400).send({ message: 'Source model not found at primary location for copying.' });
             }
@@ -113,7 +119,13 @@ const modelRoutes = async (server: FastifyInstance) => {
             }
             const model = modelRes.rows[0];
 
-            const sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
+            let sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
+            
+            // Normalize the path to handle any inconsistencies (like '//')
+            if (sourcePath) {
+                sourcePath = path.normalize(sourcePath);
+            }
+
             if (!sourcePath || !await checkExists(sourcePath)) {
                 return reply.code(400).send({ message: 'Source model not found at primary location for moving.' });
             }
