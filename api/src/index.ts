@@ -12,7 +12,7 @@ async function reconcileStaleJobs() {
         const result = await pool.query(
             "UPDATE downloads SET status = 'failed', log = 'Job marked as failed due to server restart.' WHERE status = 'running'"
         );
-        if (result.rowCount > 0) {
+        if (result.rowCount) {
             console.log(`Reconciled ${result.rowCount} stale running jobs.`);
         }
     } catch (error) {
