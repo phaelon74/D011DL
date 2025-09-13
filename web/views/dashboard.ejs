@@ -32,47 +32,54 @@
                         <td><%= model.author %></td>
                         <td><%= model.repo %></td>
                         <td><%= model.revision %></td>
-                        <td>
-                            <span class="status-<%= model.status %>"><%= model.status || (model.is_downloaded ? 'succeeded' : 'pending') %></span>
-                            <% if (model.status === 'running' && model.total_bytes > 0) { %>
-                                <% const progress = ((model.bytes_downloaded / model.total_bytes) * 100).toFixed(2); %>
-                                <div class="progress-bar">
-                                    <div class="progress" style="width: <%= progress %>%;"></div>
+                        <td class="status-cell">
+                            <% const job_status = model.job_status; %>
+                            <% const job_type = model.job_type; %>
+                            <% const download_status = model.download_status; %>
+
+                            <% if ((job_status === 'running' || job_status === 'queued')) { %>
+                                <div class="status-running">
+                                    <strong>
+                                        <% if (job_type === 'download') { %> Downloading... <% } %>
+                                        <% if (job_type === 'copy') { %> Copying... <% } %>
+                                        <% if (job_type === 'move') { %> Moving... <% } %>
+                                    </strong>
                                 </div>
-                                <span>(<%= (model.bytes_downloaded / 1024 / 1024).toFixed(2) %> / <%= (model.total_bytes / 1024 / 1024).toFixed(2) %> MB)</span>
+                                <% if (job_type === 'download' && model.total_bytes > 0) { %>
+                                    <progress value="<%= model.bytes_downloaded %>" max="<%= model.total_bytes %>"></progress>
+                                    <div class="progress-text">
+                                        <%= (model.bytes_downloaded / 1024 / 1024).toFixed(2) %> MB / 
+                                        <%= (model.total_bytes / 1024 / 1024).toFixed(2) %> MB
+                                    </div>
+                                <% } %>
+                            <% } else if (job_status === 'failed') { %>
+                                <div class="status-failed" title="Error: <%= model.job_log || 'Unknown error' %>">
+                                    failed
+                                </div>
+                            <% } else if (model.is_downloaded || (model.locations && model.locations.length > 0)) { %>
+                                <div class="status-succeeded">succeeded</div>
                             <% } %>
                         </td>
                         <td>
                             <% if (model.locations && model.locations.length > 0) { %>
                                 <%= model.locations.join(', ') %>
-                            <% } else if (model.is_downloaded) { %>
-                                <%= model.root_path %> <!-- Fallback for older records -->
                             <% } %>
                         </td>
                         <td>
-                             <% if (model.status === 'succeeded' || model.is_downloaded) { %>
-                                <% const netPath = '/media/netmodels/' + model.author + '/' + model.repo + '/' + model.revision; %>
-                                <% if (!model.locations || !model.locations.includes(netPath)) { %>
-                                    <% if (model.locations && model.locations.includes(model.root_path)) { %>
-                                        <form action="/copy-model/<%= model.id %>" method="POST" style="display: inline;">
-                                            <button type="submit">Copy</button>
-                                        </form>
-                                        <form action="/move-model/<%= model.id %>" method="POST" style="display: inline;">
-                                            <button type="submit">Move</button>
-                                        </form>
-                                    <% } %>
-                                <% } %>
-                                <a href="/delete-model/<%= model.id %>"><button>Delete</button></a>
-                            <% } %>
-                            <% if (model.status === 'failed' || model.status === 'running') { %>
-                                <form action="/rescan-model/<%= model.id %>" method="POST" style="display: inline;">
-                                    <button type="submit">Rescan</button>
+                            <% const isJobActive = job_status === 'running' || job_status === 'queued'; %>
+
+                            <% if (job_status === 'failed') { %>
+                                <form method="POST" style="display: inline;">
+                                    <button type="submit" formaction="/retry-download/<%= model.download_id %>">Retry</button>
                                 </form>
                             <% } %>
-                            <% if (model.status === 'failed') { %>
-                                <div class="error-log" title="<%= model.log %>">?</div>
-                                <form action="/retry-download/<%= model.download_id %>" method="POST" style="display: inline;">
-                                    <button type="submit">Retry</button>
+
+                            <% if ((model.is_downloaded || (model.locations && model.locations.length > 0))) { %>
+                                <form method="POST" style="display: inline;">
+                                    <button type="submit" formaction="/copy-model/<%= model.id %>" <%= isJobActive ? 'disabled' : '' %>>Copy</button>
+                                    <button type="submit" formaction="/move-model/<%= model.id %>" <%= isJobActive ? 'disabled' : '' %>>Move</button>
+                                    <button type="button" onclick="window.location.href='/delete-model/<%= model.id %>'" <%= isJobActive ? 'disabled' : '' %>>Delete</button>
+                                    <button type="submit" formaction="/models/<%= model.id %>/rescan" <%= isJobActive ? 'disabled' : '' %>>Rescan</button>
                                 </form>
                             <% } %>
                         </td>

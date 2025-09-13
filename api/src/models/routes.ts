@@ -1,9 +1,14 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import pool from '../db/pool';
-import { copyDirectory, moveDirectory, deleteDirectory, checkExists, listDirectoryContents } from '../util/filesystem';
+import { checkExists, copyDirectory, moveDirectory, deleteDirectory, listDirectoryContents } from '../util/filesystem';
+import fsQueue from '../jobs/fsQueue';
+import { processFsJob } from '../jobs/fsWorker';
 import path from 'path';
 import got from 'got';
+
+const STORAGE_ROOT = process.env.STORAGE_ROOT || '/media/models';
+const NET_STORAGE_ROOT = process.env.NET_STORAGE_ROOT || '/media/netmodels';
 
 const modelRoutes = async (server: FastifyInstance) => {
     server.addHook('onRequest', server.authenticate);
@@ -22,28 +27,37 @@ const modelRoutes = async (server: FastifyInstance) => {
     }
 
     // Copy model
-    server.post('/models/:id/copy', async (request, reply) => {
+    server.post('/models/:id/copy', { preHandler: [server.authenticate] }, async (request, reply) => {
         try {
-            const { id } = modelParamsSchema.parse(request.params);
-            const data = await getModelAndPaths(id);
-            if (!data) return reply.code(404).send({ message: 'Model not found' });
-            
-            const { model, sourcePath, netPath } = data;
-            
-            if (!await checkExists(sourcePath)) return reply.code(404).send({ message: 'Source model not found on disk' });
-            if (await checkExists(netPath)) return reply.code(409).send({ message: 'Model already exists in /media/netmodels' });
-            
-            await copyDirectory(sourcePath, netPath);
-            
-            const newLocations = [...new Set([...model.locations, netPath])];
-            await pool.query('UPDATE models SET locations = $1 WHERE id = $2', [newLocations, id]);
-            
-            reply.send({ message: 'Model copied successfully' });
-        } catch (error) {
-            console.error(error);
-            reply.code(500).send({ message: 'Internal Server Error' });
-        }
-    });
+            const { id: modelId } = request.params as { id: string };
+
+            const modelRes = await pool.query('SELECT * FROM models WHERE id = $1', [modelId]);
+            if (modelRes.rows.length === 0) {
+                return reply.code(404).send({ message: 'Model not found' });
+            }
+            const model = modelRes.rows[0];
+
+            // Basic check to see if the source exists
+            const sourcePath = model.locations.find(loc => loc.startsWith(STORAGE_ROOT));
+            if (!sourcePath || !await checkExists(sourcePath)) {
+                return reply.code(400).send({ message: 'Source model not found at primary location for copying.' });
+            }
+
+            const destPath = path.join(NET_STORAGE_ROOT, model.author, model.repo, model.revision);
+            if (await checkExists(destPath)) {
+                return reply.code(409).send({ message: 'Model already exists at the destination.' });
+            }
+
+            const jobRes = await pool.query(
+                'INSERT INTO fs_jobs (model_id, type, source_path, destination_path, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+                [modelId, 'copy', sourcePath, destPath, 'queued']
+            );
+            const jobId = jobRes.rows[0].id;
+        
+            fsQueue.add(() => processFsJob(jobId));
+        
+            reply.code(202).send({ message: 'Copy job started', jobId });
+        });
 
     // Rescan model directory
     server.post('/models/:id/rescan', async (request, reply) => {
@@ -85,38 +99,46 @@ const modelRoutes = async (server: FastifyInstance) => {
     });
 
     // Move model
-    server.post('/models/:id/move', async (request, reply) => {
+    server.post('/models/:id/move', { preHandler: [server.authenticate] }, async (request, reply) => {
          try {
-            const { id } = modelParamsSchema.parse(request.params);
-            const data = await getModelAndPaths(id);
-            if (!data) return reply.code(404).send({ message: 'Model not found' });
-            
-            const { model, sourcePath, netPath } = data;
-            
-            if (!await checkExists(sourcePath)) return reply.code(404).send({ message: 'Source model not found on disk' });
-            if (await checkExists(netPath)) return reply.code(409).send({ message: 'Model already exists in /media/netmodels' });
+            const { id: modelId } = request.params as { id: string };
 
-            await moveDirectory(sourcePath, netPath);
-            
-            const newLocations = model.locations.filter((loc: string) => loc !== sourcePath).concat(netPath);
-            await pool.query('UPDATE models SET locations = $1 WHERE id = $2', [newLocations, id]);
+            const modelRes = await pool.query('SELECT * FROM models WHERE id = $1', [modelId]);
+            if (modelRes.rows.length === 0) {
+                return reply.code(404).send({ message: 'Model not found' });
+            }
+            const model = modelRes.rows[0];
 
-            reply.send({ message: 'Model moved successfully' });
-        } catch (error) {
-            console.error(error);
-            reply.code(500).send({ message: 'Internal Server Error' });
-        }
-    });
+            const sourcePath = model.locations.find(loc => loc.startsWith(STORAGE_ROOT));
+            if (!sourcePath || !await checkExists(sourcePath)) {
+                return reply.code(400).send({ message: 'Source model not found at primary location for moving.' });
+            }
+
+            const destPath = path.join(NET_STORAGE_ROOT, model.author, model.repo, model.revision);
+            if (await checkExists(destPath)) {
+                return reply.code(409).send({ message: 'A model already exists at the destination. Cannot move.' });
+            }
+            
+            const jobRes = await pool.query(
+                'INSERT INTO fs_jobs (model_id, type, source_path, destination_path, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+                [modelId, 'move', sourcePath, destPath, 'queued']
+            );
+            const jobId = jobRes.rows[0].id;
+        
+            fsQueue.add(() => processFsJob(jobId));
+        
+            reply.code(202).send({ message: 'Move job started', jobId });
+        });
 
     // Delete model
     const deleteBodySchema = z.object({
         locationsToDelete: z.array(z.string())
     });
-    server.post('/models/:id/delete', async (request, reply) => {
+    server.post('/models/:id/delete', { preHandler: [server.authenticate] }, async (request, reply) => {
         try {
-            const { id } = modelParamsSchema.parse(request.params);
+            const { id: modelId } = request.params as { id: string };
             const { locationsToDelete } = deleteBodySchema.parse(request.body);
-            const modelRes = await pool.query('SELECT locations FROM models WHERE id = $1', [id]);
+            const modelRes = await pool.query('SELECT locations FROM models WHERE id = $1', [modelId]);
             if (modelRes.rows.length === 0) return reply.code(404).send({ message: 'Model not found' });
             
             for (const loc of locationsToDelete) {
@@ -127,7 +149,7 @@ const modelRoutes = async (server: FastifyInstance) => {
 
             const currentLocations = modelRes.rows[0].locations;
             const newLocations = currentLocations.filter((loc: string) => !locationsToDelete.includes(loc));
-            await pool.query('UPDATE models SET locations = $1 WHERE id = $2', [newLocations, id]);
+            await pool.query('UPDATE models SET locations = $1 WHERE id = $2', [newLocations, modelId]);
 
             reply.send({ message: 'Model deleted successfully from specified locations' });
         } catch (error) {

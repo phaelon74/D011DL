@@ -55,25 +55,37 @@ CREATE TABLE IF NOT EXISTS model_files (
   UNIQUE (model_id, path)
 );
 
-CREATE TABLE IF NOT EXISTS downloads (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES users(id),
-  selection_json JSONB NOT NULL,
-  status TEXT NOT NULL DEFAULT 'queued',  -- `queued|running|succeeded|failed|canceled`
-  progress_pct NUMERIC(5,2) DEFAULT 0,
-  started_at TIMESTAMPTZ NULL,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  finished_at TIMESTAMPTZ NULL,
-  bytes_downloaded BIGINT DEFAULT 0,
-  total_bytes BIGINT DEFAULT 0,
-  log TEXT NULL
+CREATE TABLE downloads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL DEFAULT 'queued', -- queued, running, succeeded, failed
+    progress_pct INTEGER NOT NULL DEFAULT 0,
+    bytes_downloaded BIGINT NOT NULL DEFAULT 0,
+    total_bytes BIGINT NOT NULL DEFAULT 0,
+    log TEXT,
+    selection_json JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ
+);
+
+-- Filesystem operation jobs (copy, move)
+CREATE TABLE fs_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+    type VARCHAR(20) NOT NULL, -- 'copy' or 'move'
+    status VARCHAR(20) NOT NULL DEFAULT 'queued',
+    source_path TEXT NOT NULL,
+    destination_path TEXT NOT NULL,
+    log TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ
 );
 
 -- Add a default user
 INSERT INTO users (username, password_hash)
-VALUES ('dload', crypt('Broccoli@2025', gen_salt('bf', 12)))
-ON CONFLICT (username) DO NOTHING;
+VALUES ('dload', crypt('Broccoli@2025', gen_salt('bf')));
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "D011DLUSER";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "D011DLUSER";
