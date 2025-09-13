@@ -37,7 +37,19 @@ export async function copyDirectory(source: string, destination: string): Promis
 }
 
 export async function moveDirectory(source: string, destination: string): Promise<void> {
-    await execPromise(`mv "${source}" "${destination}"`);
+    const destDir = path.dirname(destination);
+    await fs.mkdir(destDir, { recursive: true });
+
+    const command = `mv "${source}" "${destination}"`;
+    return new Promise((resolve, reject) => {
+        exec(command, (error, stdout, stderr) => {
+            if (error) {
+                reject(error);
+            } else {
+                resolve();
+            }
+        });
+    });
 }
 
 export async function deleteDirectory(directoryPath: string): Promise<void> {
