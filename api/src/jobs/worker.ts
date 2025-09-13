@@ -34,22 +34,41 @@ export async function processDownloadJob(jobId: string) {
     try {
         await pool.query('UPDATE downloads SET status = $1, started_at = now() WHERE id = $2', ['running', jobId]);
 
-        // 1. Get file list from HF
         const treeUrl = `https://huggingface.co/api/models/${author}/${repo}/tree/${revision}`;
-        const fileList: HfFile[] = await got(treeUrl).json();
+        const fileList: HfFile[] = await got(treeUrl, { responseType: 'json' }).json();
         const filesToDownload = fileList.filter(f => f.type === 'file');
         const totalSize = filesToDownload.reduce((acc, file) => acc + file.size, 0);
 
         await pool.query('UPDATE downloads SET total_bytes = $1 WHERE id = $2', [totalSize, jobId]);
 
-        // 2. Download files sequentially
+        let cumulativeBytesDownloaded = 0;
+        let lastUpdateTime = 0;
+        const UPDATE_INTERVAL = 2000; // 2 seconds
+
+        const progressCallback = (bytesForCurrentFile: number) => {
+            const now = Date.now();
+            if (now - lastUpdateTime > UPDATE_INTERVAL) {
+                lastUpdateTime = now;
+                const totalJobBytes = cumulativeBytesDownloaded + bytesForCurrentFile;
+                pool.query(
+                    'UPDATE downloads SET bytes_downloaded = $1 WHERE id = $2',
+                    [totalJobBytes, jobId]
+                );
+            }
+        };
+        
         for (const file of filesToDownload) {
             const fileUrl = `https://huggingface.co/${author}/${repo}/resolve/${revision}/${file.path}`;
             const destinationPath = path.join(STORAGE_ROOT, author, repo, revision, file.path);
-            await downloadFileWithProgress(fileUrl, destinationPath, jobId, file.size);
+            await downloadFileWithProgress(fileUrl, destinationPath, progressCallback);
+            
+            cumulativeBytesDownloaded += file.size;
+            await pool.query(
+                'UPDATE downloads SET bytes_downloaded = $1 WHERE id = $2',
+                [cumulativeBytesDownloaded, jobId]
+            );
         }
 
-        // On success, finalize the job
         await pool.query("UPDATE downloads SET status = 'succeeded', finished_at = now(), progress_pct = 100 WHERE id = $1", [jobId]);
         await pool.query("UPDATE models SET is_downloaded = true, updated_at = now(), locations = array_append(locations, $1) WHERE id = $2", [model.root_path, model_id]);
 
