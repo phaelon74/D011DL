@@ -3,10 +3,13 @@ import path from 'path';
 
 export async function checkExists(filePath: string): Promise<boolean> {
     try {
-        await fs.access(filePath);
+        await fs.stat(filePath);
         return true;
-    } catch {
-        return false;
+    } catch (error: any) {
+        if (error.code === 'ENOENT') {
+            return false;
+        }
+        throw error;
     }
 }
 
