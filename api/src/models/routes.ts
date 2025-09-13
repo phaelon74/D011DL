@@ -121,12 +121,20 @@ const modelRoutes = async (server: FastifyInstance) => {
 
             let sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
             
+            // --- START DEBUG LOGGING ---
+            console.log('[DEBUG] Initiating MOVE operation for model ID:', modelId);
+            console.log('[DEBUG] Locations from DB:', model.locations);
+            console.log('[DEBUG] Using STORAGE_ROOT:', STORAGE_ROOT);
+            console.log('[DEBUG] Initial source path found:', sourcePath);
+            // --- END DEBUG LOGGING ---
+
             // Normalize the path to handle any inconsistencies (like '//')
             if (sourcePath) {
                 sourcePath = path.normalize(sourcePath);
             }
 
             if (!sourcePath || !await checkExists(sourcePath)) {
+                console.error('[ERROR] Move failed: Source path not found or does not exist on disk. Normalized path:', sourcePath);
                 return reply.code(400).send({ message: 'Source model not found at primary location for moving.' });
             }
 
