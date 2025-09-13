@@ -84,16 +84,16 @@
 </div>
 
 <div class="refresh-container">
-    <span>Auto-refresh:</span>
-    <select id="refresh-interval">
-        <option value="0">Off</option>
+    <label for="refreshInterval">Auto-refresh:</label>
+    <select id="refreshInterval">
+        <option value="0" selected>Off</option>
         <option value="5">5s</option>
         <option value="10">10s</option>
-        <option value="15" selected>15s</option>
+        <option value="15">15s</option>
         <option value="30">30s</option>
         <option value="60">60s</option>
     </select>
-    <span id="refresh-timer"></span>
+    <span id="refreshTimer"></span>
 </div>
 
 <%- include('partials/footer') %>
