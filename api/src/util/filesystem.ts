@@ -1,9 +1,5 @@
 import { promises as fs } from 'fs';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import path from 'path';
-
-const execPromise = promisify(exec);
 
 export async function checkExists(filePath: string): Promise<boolean> {
     try {
@@ -33,7 +29,16 @@ export async function listDirectoryContents(dirPath: string): Promise<{ path: st
 
 
 export async function copyDirectory(source: string, destination: string): Promise<void> {
-    await fs.cp(source, destination, { recursive: true });
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    console.log(`Attempting to copy from "${source}" to "${destination}"`);
+    try {
+        await fs.cp(source, destination, { recursive: true });
+        console.log(`Successfully copied from "${source}" to "${destination}"`);
+    } catch (error) {
+        console.error(`ERROR during copy from "${source}" to "${destination}":`, error);
+        // Re-throw the error to ensure the job worker catches it and marks the job as failed.
+        throw error;
+    }
 }
 
 export async function moveDirectory(source: string, destination: string): Promise<void> {
@@ -47,5 +52,6 @@ export async function deleteDirectory(dirPath: string): Promise<void> {
     if (!await checkExists(dirPath)) {
         return;
     }
-    await execPromise(`rm -rf "${dirPath}"`);
+    // Use Node's native, robust rm function instead of exec('rm')
+    await fs.rm(dirPath, { recursive: true, force: true });
 }
