@@ -44,11 +44,55 @@ export async function copyDirectory(source: string, destination: string): Promis
     }
 }
 
+async function verifyCopy(source: string, destination: string): Promise<boolean> {
+    try {
+        console.log(`Verifying copy from ${source} to ${destination}`);
+        const sourceFiles = await listDirectoryContents(source);
+        const destFiles = await listDirectoryContents(destination);
+
+        if (sourceFiles.length === 0 && destFiles.length === 0) {
+            console.error(`Verification failed: Both source and destination are empty or do not exist.`);
+            return false;
+        }
+
+        if (sourceFiles.length !== destFiles.length) {
+            console.error(`Verification failed: File count mismatch. Source: ${sourceFiles.length}, Destination: ${destFiles.length}`);
+            return false;
+        }
+
+        const sourceTotalSize = sourceFiles.reduce((acc, file) => acc + file.size, 0);
+        const destTotalSize = destFiles.reduce((acc, file) => acc + file.size, 0);
+
+        if (sourceTotalSize !== destTotalSize) {
+            console.error(`Verification failed: Total size mismatch. Source: ${sourceTotalSize}, Destination: ${destTotalSize}`);
+            return false;
+        }
+        
+        console.log(`Verification successful. Source and destination are identical.`);
+        return true;
+    } catch (error) {
+        console.error('Error during copy verification:', error);
+        return false;
+    }
+}
+
 export async function moveDirectory(source: string, destination: string): Promise<void> {
     // This is a robust implementation for moving across different filesystems (e.g., Docker volumes).
-    // It copies the directory first, and only then deletes the source.
+    // It copies the directory, verifies the copy, and only then deletes the source.
     await copyDirectory(source, destination);
-    await deleteDirectory(source);
+
+    const isVerified = await verifyCopy(source, destination);
+
+    if (isVerified) {
+        await deleteDirectory(source);
+        console.log(`Move complete: Source ${source} deleted after successful verification.`);
+    } else {
+        // The copy failed, but we leave the source intact. 
+        // We should also clean up the failed partial copy at the destination.
+        console.error(`Move failed: Verification check failed. Source directory at ${source} has been preserved.`);
+        await deleteDirectory(destination); // Clean up failed copy attempt
+        throw new Error(`Copy verification failed. Source: ${source}, Destination: ${destination}. Check logs for details.`);
+    }
 }
 
 export async function deleteDirectory(dirPath: string): Promise<void> {
