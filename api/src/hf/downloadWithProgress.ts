@@ -1,4 +1,5 @@
-import { promises as fs } from 'fs';
+import { promises as fsPromises } from 'fs';
+import fs from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
@@ -14,7 +15,7 @@ export async function downloadFileWithProgress(
     downloadId: string,
     totalSize: number
 ): Promise<void> {
-    await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+    await fsPromises.mkdir(path.dirname(destinationPath), { recursive: true });
     
     const downloadStream = got.stream(url);
     const fileWriteStream = fs.createWriteStream(destinationPath + '.partial');
@@ -27,5 +28,5 @@ export async function downloadFileWithProgress(
     });
 
     await pipeline(downloadStream, fileWriteStream);
-    await fs.rename(destinationPath + '.partial', destinationPath);
+    await fsPromises.rename(destinationPath + '.partial', destinationPath);
 }
