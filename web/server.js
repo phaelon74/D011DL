@@ -131,7 +131,7 @@ app.get('/delete-model/:id', checkAuth, async (req, res) => {
         const response = await axios.get(`${API_BASE_URL}/db/models`, {
              headers: { Authorization: `Bearer ${res.locals.token}` }
         });
-        const model = response.data.find((m: any) => m.id === id);
+        const model = response.data.find((m) => m.id === id);
         if (!model) return res.redirect('/');
         
         res.render('delete-model', { title: 'Delete Model', model });
