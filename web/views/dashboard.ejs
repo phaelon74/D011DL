@@ -26,7 +26,7 @@
         </thead>
         <tbody>
             <% models.forEach(model => { %>
-                <% const shouldDisplay = (model.locations && model.locations.length > 0) || (model.is_downloaded && (!model.locations || model.locations.length === 0)); %>
+                <% const shouldDisplay = (model.locations && model.locations.length > 0) || (model.is_downloaded && (!model.locations || model.locations.length === 0)) || model.download_id; %>
                 <% if (shouldDisplay) { %>
                     <tr>
                         <td><%= model.author %></td>
