@@ -37,11 +37,15 @@ export async function copyDirectory(source: string, destination: string): Promis
 }
 
 export async function moveDirectory(source: string, destination: string): Promise<void> {
-    const destDir = path.dirname(destination);
-    await fs.mkdir(destDir, { recursive: true });
-    await fs.rename(source, destination);
+    // This is a robust implementation for moving across different filesystems (e.g., Docker volumes).
+    // It copies the directory first, and only then deletes the source.
+    await copyDirectory(source, destination);
+    await deleteDirectory(source);
 }
 
-export async function deleteDirectory(directoryPath: string): Promise<void> {
-    await execPromise(`rm -rf "${directoryPath}"`);
+export async function deleteDirectory(dirPath: string): Promise<void> {
+    if (!await checkExists(dirPath)) {
+        return;
+    }
+    await execPromise(`rm -rf "${dirPath}"`);
 }

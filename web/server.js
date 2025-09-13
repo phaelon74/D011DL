@@ -138,6 +138,20 @@ app.post('/move-model/:id', checkAuth, async (req, res) => {
     }
 });
 
+app.post('/models/:id/rescan', checkAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const token = req.cookies.token;
+        await axios.post(`${API_BASE_URL}/models/${id}/rescan`, {}, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        res.redirect('/');
+    } catch (error) {
+        console.error('Error rescanning model:', error.response ? error.response.data : error.message);
+        res.redirect('/dashboard?error=rescan_failed');
+    }
+});
+
 app.get('/delete-model/:id', checkAuth, async (req, res) => {
     try {
         const { id } = req.params;
