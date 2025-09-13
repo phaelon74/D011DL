@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { createDownloadBodySchema } from './schemas';
+import { createDownloadBodySchema } from '../schemas';
 import pool from '../db/pool';
 import downloadQueue from './queue';
 import { processDownloadJob } from './worker';
@@ -18,11 +18,11 @@ const downloadsRoutes = async (server: FastifyInstance) => {
 
             // 1. Upsert model
             const modelRes = await pool.query(
-                `INSERT INTO models (author, repo, revision, root_path) 
-                 VALUES ($1, $2, $3, $4) 
+                `INSERT INTO models (author, repo, revision, root_path, locations)
+                 VALUES ($1, $2, $3, $4, $5)
                  ON CONFLICT (author, repo, revision) DO UPDATE SET updated_at = now()
                  RETURNING id`,
-                [author, repo, revision, rootPath]
+                [author, repo, revision, rootPath, [rootPath]]
             );
             const modelId = modelRes.rows[0].id;
 
