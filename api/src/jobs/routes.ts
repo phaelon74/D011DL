@@ -6,14 +6,11 @@ import { processDownloadJob } from './worker';
 import { STORAGE_ROOT } from '../config';
 
 const downloadsRoutes = async (server: FastifyInstance) => {
-    // All routes in this plugin are protected
-    server.addHook('onRequest', server.authenticate);
-    
-    // Create download job
+
     server.post('/downloads', { preHandler: [server.authenticate] }, async (request, reply) => {
         try {
             const { author, repo, revision, selection } = createDownloadBodySchema.parse(request.body);
-            const userId = request.user?.id;
+            
             const rootPath = `${STORAGE_ROOT}/${author}/${repo}/${revision}`;
 
             // 1. Upsert model
@@ -26,7 +23,7 @@ const downloadsRoutes = async (server: FastifyInstance) => {
             );
             const modelId = modelRes.rows[0].id;
 
-            // 2. Create download job record
+            // Create a new download job
             const jobRes = await pool.query(
                 'INSERT INTO downloads (model_id, selection_json, status) VALUES ($1, $2, $3) RETURNING id',
                 [modelId, JSON.stringify(selection), 'queued']
@@ -37,73 +34,38 @@ const downloadsRoutes = async (server: FastifyInstance) => {
 
             reply.code(202).send({ download_id: jobId, status: 'queued' });
 
-        } catch (error) {
-            if (error instanceof z.ZodError) {
-                return reply.code(400).send({ message: 'Validation error', issues: error.issues });
-            }
-            console.error(error);
+        } catch (error: any) {
+            console.error('Error creating download:', error);
             reply.code(500).send({ message: 'Internal Server Error' });
         }
     });
 
-    // Get download job status
-    const getStatusParamsSchema = z.object({ id: z.string().uuid() });
-    server.get('/downloads/:id', async (request, reply) => {
+    server.post('/downloads/:id/retry', { preHandler: [server.authenticate] }, async (request, reply) => {
         try {
-            const { id } = getStatusParamsSchema.parse(request.params);
-            const res = await pool.query(
-                'SELECT status, progress_pct, started_at, finished_at, log FROM downloads WHERE id = $1',
-                [id]
-            );
+            const { id: oldJobId } = request.params as { id: string };
 
-            if (res.rows.length === 0) {
+            // 1. Get old job details
+            const oldJobRes = await pool.query('SELECT * FROM downloads WHERE id = $1', [oldJobId]);
+            if (oldJobRes.rows.length === 0) {
                 return reply.code(404).send({ message: 'Job not found' });
             }
+            const oldJob = oldJobRes.rows[0];
 
-            reply.send(res.rows[0]);
-        } catch(error) {
-            if (error instanceof z.ZodError) {
-                return reply.code(400).send({ message: 'Validation error', issues: error.issues });
-            }
-            console.error(error);
-            reply.code(500).send({ message: 'Internal Server Error' });
-        }
-    });
-
-    // Retry download job
-    const retryParamsSchema = z.object({ id: z.string().uuid() });
-    server.post('/downloads/:id/retry', { onRequest: [server.authenticate] }, async (request: FastifyRequest, reply) => {
-        try {
-            const { id } = retryParamsSchema.parse(request.params);
-
-            // Find the original failed job to get its details
-            const originalJobRes = await pool.query('SELECT model_id FROM downloads WHERE id = $1', [id]);
-            if (originalJobRes.rows.length === 0) {
-                return reply.code(404).send({ message: 'Original job not found' });
-            }
-            const { model_id } = originalJobRes.rows[0];
-            const userId = request.user?.id;
-            
-            // Re-use the same selection from the original job
-            const originalSelectionRes = await pool.query('SELECT selection_json FROM downloads WHERE id = $1', [id]);
-            const selection = originalSelectionRes.rows[0].selection_json;
-
-            // Create a new download job record
-            const newDownloadRes = await pool.query(
-                `INSERT INTO downloads (model_id, user_id, selection_json, status) 
-                 VALUES ($1, $2, $3, 'queued')
+            // 2. Create a new job record with the same details
+            const newJobRes = await pool.query(
+                `INSERT INTO downloads (model_id, selection_json, status)
+                 VALUES ($1, $2, 'queued')
                  RETURNING id`,
-                [model_id, userId, JSON.stringify(selection)]
+                [oldJob.model_id, oldJob.selection_json]
             );
-            const newDownloadId = newDownloadRes.rows[0].id;
-            
-            // Add the new job to the queue
-            downloadQueue.add(() => processDownloadJob(newDownloadId));
+            const newJobId = newJobRes.rows[0].id;
 
-            reply.code(202).send({ new_download_id: newDownloadId, status: 'queued' });
+            // 3. Add to queue
+            downloadQueue.add(() => processDownloadJob(newJobId));
 
-        } catch (error) {
-            console.error(error);
+            reply.code(202).send({ message: 'Retry job started', jobId: newJobId });
+        } catch (error: any) {
+            console.error('Error retrying job:', error);
             reply.code(500).send({ message: 'Internal Server Error' });
         }
     });
