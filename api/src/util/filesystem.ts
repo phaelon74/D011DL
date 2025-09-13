@@ -21,7 +21,7 @@ export async function listDirectoryContents(dirPath: string): Promise<{ path: st
     // Note: The 'recursive' option requires Node.js v20.1.0 or later.
     const dirents = await fs.readdir(dirPath, { withFileTypes: true, recursive: true });
     const files = await Promise.all(dirents.map(async (dirent) => {
-        const fullPath = path.join(dirPath, dirent.path, dirent.name);
+        const fullPath = path.join(dirent.path, dirent.name);
         if (dirent.isFile()) {
             const stats = await fs.stat(fullPath);
             return { path: path.relative(dirPath, fullPath), size: stats.size };
