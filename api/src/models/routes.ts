@@ -57,7 +57,11 @@ const modelRoutes = async (server: FastifyInstance) => {
             fsQueue.add(() => processFsJob(jobId));
         
             reply.code(202).send({ message: 'Copy job started', jobId });
-        });
+        } catch (error) {
+            console.error('Error starting copy job:', error);
+            reply.code(500).send({ message: 'Failed to start copy job.' });
+        }
+    });
 
     // Rescan model directory
     server.post('/models/:id/rescan', async (request, reply) => {
@@ -100,7 +104,7 @@ const modelRoutes = async (server: FastifyInstance) => {
 
     // Move model
     server.post('/models/:id/move', { preHandler: [server.authenticate] }, async (request, reply) => {
-         try {
+        try {
             const { id: modelId } = request.params as { id: string };
 
             const modelRes = await pool.query('SELECT * FROM models WHERE id = $1', [modelId]);
@@ -128,7 +132,11 @@ const modelRoutes = async (server: FastifyInstance) => {
             fsQueue.add(() => processFsJob(jobId));
         
             reply.code(202).send({ message: 'Move job started', jobId });
-        });
+        } catch (error) {
+            console.error('Error starting move job:', error);
+            reply.code(500).send({ message: 'Failed to start move job.' });
+        }
+    });
 
     // Delete model
     const deleteBodySchema = z.object({
