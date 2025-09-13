@@ -2,20 +2,28 @@ import pool from './pool';
 
 export async function getModels() {
     const query = `
-        SELECT DISTINCT ON (m.id)
+        SELECT
             m.id,
             m.author,
             m.repo,
             m.revision,
+            m.root_path,
             m.is_downloaded,
+            m.locations,
             d.status,
             d.log,
             d.id as download_id,
             d.bytes_downloaded,
             d.total_bytes
         FROM models m
-        LEFT JOIN downloads d ON m.id = d.model_id
-        ORDER BY m.id, d.started_at DESC NULLS LAST
+        LEFT JOIN LATERAL (
+            SELECT *
+            FROM downloads
+            WHERE model_id = m.id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) d ON true
+        ORDER BY m.created_at DESC
     `;
     const res = await pool.query(query);
     // Manually ensure locations is always an array
