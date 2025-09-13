@@ -33,23 +33,13 @@ export async function listDirectoryContents(dirPath: string): Promise<{ path: st
 
 
 export async function copyDirectory(source: string, destination: string): Promise<void> {
-    await execPromise(`cp -r "${source}" "${destination}"`);
+    await fs.cp(source, destination, { recursive: true });
 }
 
 export async function moveDirectory(source: string, destination: string): Promise<void> {
     const destDir = path.dirname(destination);
     await fs.mkdir(destDir, { recursive: true });
-
-    const command = `mv "${source}" "${destination}"`;
-    return new Promise((resolve, reject) => {
-        exec(command, (error, stdout, stderr) => {
-            if (error) {
-                reject(error);
-            } else {
-                resolve();
-            }
-        });
-    });
+    await fs.rename(source, destination);
 }
 
 export async function deleteDirectory(directoryPath: string): Promise<void> {
