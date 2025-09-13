@@ -2,8 +2,7 @@ import pool from '../db/pool';
 import { downloadFileWithProgress } from '../hf/downloadWithProgress';
 import got from 'got';
 import path from 'path';
-
-const STORAGE_ROOT = process.env.STORAGE_ROOT || '/media/models/models';
+import { STORAGE_ROOT } from '../config';
 
 interface HfFile {
     path: string;

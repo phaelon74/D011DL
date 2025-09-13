@@ -6,9 +6,7 @@ import fsQueue from '../jobs/fsQueue';
 import { processFsJob } from '../jobs/fsWorker';
 import path from 'path';
 import got from 'got';
-
-const STORAGE_ROOT = process.env.STORAGE_ROOT || '/media/models';
-const NET_STORAGE_ROOT = process.env.NET_STORAGE_ROOT || '/media/netmodels';
+import { STORAGE_ROOT, NET_STORAGE_ROOT } from '../config';
 
 const modelRoutes = async (server: FastifyInstance) => {
     server.addHook('onRequest', server.authenticate);
@@ -38,19 +36,20 @@ const modelRoutes = async (server: FastifyInstance) => {
             const model = modelRes.rows[0];
 
             // Basic check to see if the source exists
-            let sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
-
-            // Normalize the path to handle any inconsistencies (like '//')
-            if (sourcePath) {
-                sourcePath = path.normalize(sourcePath);
-            }
-
+            const sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
             if (!sourcePath || !await checkExists(sourcePath)) {
                 return reply.code(400).send({ message: 'Source model not found at primary location for copying.' });
             }
 
             const destPath = path.join(NET_STORAGE_ROOT, model.author, model.repo, model.revision);
+            
+            // --- START DEBUG LOGGING for COPY ---
+            console.log('[DEBUG] Initiating COPY operation for model ID:', modelId);
+            console.log('[DEBUG] Destination path being checked:', destPath);
+            // --- END DEBUG LOGGING for COPY ---
+
             if (await checkExists(destPath)) {
+                console.error(`[ERROR] Copy failed: Destination path ${destPath} already exists.`);
                 return reply.code(409).send({ message: 'Model already exists at the destination.' });
             }
 
@@ -110,52 +109,9 @@ const modelRoutes = async (server: FastifyInstance) => {
 
     // Move model
     server.post('/models/:id/move', { preHandler: [server.authenticate] }, async (request, reply) => {
-        try {
-            const { id: modelId } = request.params as { id: string };
-
-            const modelRes = await pool.query('SELECT * FROM models WHERE id = $1', [modelId]);
-            if (modelRes.rows.length === 0) {
-                return reply.code(404).send({ message: 'Model not found' });
-            }
-            const model = modelRes.rows[0];
-
-            let sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
-            
-            // --- START DEBUG LOGGING ---
-            console.log('[DEBUG] Initiating MOVE operation for model ID:', modelId);
-            console.log('[DEBUG] Locations from DB:', model.locations);
-            console.log('[DEBUG] Using STORAGE_ROOT:', STORAGE_ROOT);
-            console.log('[DEBUG] Initial source path found:', sourcePath);
-            // --- END DEBUG LOGGING ---
-
-            // Normalize the path to handle any inconsistencies (like '//')
-            if (sourcePath) {
-                sourcePath = path.normalize(sourcePath);
-            }
-
-            if (!sourcePath || !await checkExists(sourcePath)) {
-                console.error('[ERROR] Move failed: Source path not found or does not exist on disk. Normalized path:', sourcePath);
-                return reply.code(400).send({ message: 'Source model not found at primary location for moving.' });
-            }
-
-            const destPath = path.join(NET_STORAGE_ROOT, model.author, model.repo, model.revision);
-            if (await checkExists(destPath)) {
-                return reply.code(409).send({ message: 'A model already exists at the destination. Cannot move.' });
-            }
-            
-            const jobRes = await pool.query(
-                'INSERT INTO fs_jobs (model_id, type, source_path, destination_path, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-                [modelId, 'move', sourcePath, destPath, 'queued']
-            );
-            const jobId = jobRes.rows[0].id;
-        
-            fsQueue.add(() => processFsJob(jobId));
-        
-            reply.code(202).send({ message: 'Move job started', jobId });
-        } catch (error) {
-            console.error('Error starting move job:', error);
-            reply.code(500).send({ message: 'Failed to start move job.' });
-        }
+        // THIS FEATURE IS TEMPORARILY DISABLED FOR SAFETY.
+        console.warn('MOVE operation is temporarily disabled pending reliability fixes for the COPY function.');
+        return reply.code(503).send({ message: 'Move operation is temporarily disabled.' });
     });
 
     // Delete model

@@ -1,27 +1,16 @@
-import { FastifyInstance, FastifyRequest } from 'fastify';
-import { z } from 'zod';
+import { FastifyInstance } from 'fastify';
+import { createDownloadBodySchema } from './schemas';
 import pool from '../db/pool';
-import queue from './queue';
+import downloadQueue from './queue';
 import { processDownloadJob } from './worker';
-
-const STORAGE_ROOT = process.env.STORAGE_ROOT || '/media/models';
+import { STORAGE_ROOT } from '../config';
 
 const downloadsRoutes = async (server: FastifyInstance) => {
     // All routes in this plugin are protected
     server.addHook('onRequest', server.authenticate);
     
     // Create download job
-    const createDownloadBodySchema = z.object({
-        author: z.string(),
-        repo: z.string(),
-        revision: z.string().default('main'),
-        selection: z.array(z.object({
-            path: z.string(),
-            type: z.enum(['file', 'dir'])
-        }))
-    });
-
-    server.post('/downloads', async (request: FastifyRequest, reply) => {
+    server.post('/downloads', { preHandler: [server.authenticate] }, async (request, reply) => {
         try {
             const { author, repo, revision, selection } = createDownloadBodySchema.parse(request.body);
             const userId = request.user?.id;
@@ -44,7 +33,7 @@ const downloadsRoutes = async (server: FastifyInstance) => {
             );
             const jobId = jobRes.rows[0].id;
 
-            queue.add(() => processDownloadJob(jobId));
+            downloadQueue.add(() => processDownloadJob(jobId));
 
             reply.code(202).send({ download_id: jobId, status: 'queued' });
 
@@ -109,7 +98,7 @@ const downloadsRoutes = async (server: FastifyInstance) => {
             const newDownloadId = newDownloadRes.rows[0].id;
             
             // Add the new job to the queue
-            queue.add(() => processDownloadJob(newDownloadId));
+            downloadQueue.add(() => processDownloadJob(newDownloadId));
 
             reply.code(202).send({ new_download_id: newDownloadId, status: 'queued' });
 
