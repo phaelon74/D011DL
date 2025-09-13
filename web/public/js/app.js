@@ -2,25 +2,48 @@
 console.log('App JS loaded');
 
 document.addEventListener('DOMContentLoaded', () => {
-    const hfUrlForm = document.getElementById('hf-url-form');
-    if (hfUrlForm) {
-        hfUrlForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const url = document.getElementById('hf-url').value;
-            const resultDiv = document.getElementById('parsed-result');
-            const treeContainer = document.getElementById('tree-container');
+    let refreshIntervalId = null;
+    let countdownIntervalId = null;
+    let secondsLeft = 0;
+
+    const refreshSelect = document.getElementById('refresh-interval');
+    const refreshTimerSpan = document.getElementById('refresh-timer');
+
+    function startRefresh(intervalSeconds) {
+        stopRefresh();
+        if (intervalSeconds > 0) {
+            secondsLeft = intervalSeconds;
+            refreshTimerSpan.textContent = `(refreshing in ${secondsLeft}s)`;
             
-            try {
-                // We need a way to get the token to the client-side JS
-                // This is a complex topic (e.g., passing it on render, secure httponly cookies + refresh tokens)
-                // For now, this part of the functionality will be incomplete without the token.
-                // A full implementation would handle API calls from the browser.
-                resultDiv.innerHTML = `Parsing is handled server-side, but client-side fetching from the API would be implemented here. <br> Submitted URL: <code>${url}</code>`;
-                treeContainer.innerHTML = '';
-                
-            } catch (error) {
-                resultDiv.innerHTML = `<p class="error">Could not parse URL.</p>`;
-            }
-        });
+            countdownIntervalId = setInterval(() => {
+                secondsLeft--;
+                refreshTimerSpan.textContent = `(refreshing in ${secondsLeft}s)`;
+            }, 1000);
+
+            refreshIntervalId = setInterval(() => {
+                location.reload();
+            }, intervalSeconds * 1000);
+        }
+    }
+
+    function stopRefresh() {
+        clearInterval(refreshIntervalId);
+        clearInterval(countdownIntervalId);
+        refreshTimerSpan.textContent = '';
+    }
+
+    refreshSelect.addEventListener('change', (e) => {
+        const interval = parseInt(e.target.value, 10);
+        if (interval > 0) {
+            startRefresh(interval);
+        } else {
+            stopRefresh();
+        }
+    });
+    
+    // Start with the default selected interval
+    const initialInterval = parseInt(refreshSelect.value, 10);
+    if (initialInterval > 0) {
+        startRefresh(initialInterval);
     }
 });

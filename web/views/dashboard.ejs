@@ -19,7 +19,7 @@
                 <th>Author</th>
                 <th>Repo</th>
                 <th>Revision</th>
-                <th>Status</th>
+                <th>Status / Progress</th>
                 <th>Location(s)</th>
                 <th>Actions</th>
             </tr>
@@ -33,12 +33,19 @@
                         <td><%= model.repo %></td>
                         <td><%= model.revision %></td>
                         <td>
-                            <span class="status-<%= model.status %>"><%= model.status || 'Downloaded' %></span>
+                            <span class="status-<%= model.status %>"><%= model.status || (model.is_downloaded ? 'succeeded' : 'pending') %></span>
+                            <% if (model.status === 'running' && model.total_bytes > 0) { %>
+                                <% const progress = ((model.bytes_downloaded / model.total_bytes) * 100).toFixed(2); %>
+                                <div class="progress-bar">
+                                    <div class="progress" style="width: <%= progress %>%;"></div>
+                                </div>
+                                <span>(<%= (model.bytes_downloaded / 1024 / 1024).toFixed(2) %> / <%= (model.total_bytes / 1024 / 1024).toFixed(2) %> MB)</span>
+                            <% } %>
                         </td>
                         <td>
                             <% if (model.locations && model.locations.length > 0) { %>
                                 <%= model.locations.join(', ') %>
-                            <% } else { %>
+                            <% } else if (model.is_downloaded) { %>
                                 <%= model.root_path %> <!-- Fallback for older records -->
                             <% } %>
                         </td>
@@ -46,12 +53,14 @@
                              <% if (model.status === 'succeeded' || model.is_downloaded) { %>
                                 <% const netPath = '/media/netmodels/' + model.author + '/' + model.repo + '/' + model.revision; %>
                                 <% if (!model.locations || !model.locations.includes(netPath)) { %>
-                                    <form action="/copy-model/<%= model.id %>" method="POST" style="display: inline;">
-                                        <button type="submit">Copy</button>
-                                    </form>
-                                    <form action="/move-model/<%= model.id %>" method="POST" style="display: inline;">
-                                        <button type="submit">Move</button>
-                                    </form>
+                                    <% if (model.locations && model.locations.includes(model.root_path)) { %>
+                                        <form action="/copy-model/<%= model.id %>" method="POST" style="display: inline;">
+                                            <button type="submit">Copy</button>
+                                        </form>
+                                        <form action="/move-model/<%= model.id %>" method="POST" style="display: inline;">
+                                            <button type="submit">Move</button>
+                                        </form>
+                                    <% } %>
                                 <% } %>
                                 <a href="/delete-model/<%= model.id %>"><button>Delete</button></a>
                             <% } %>
@@ -67,6 +76,19 @@
             <% }) %>
         </tbody>
     </table>
+</div>
+
+<div class="refresh-container">
+    <span>Auto-refresh:</span>
+    <select id="refresh-interval">
+        <option value="0">Off</option>
+        <option value="5">5s</option>
+        <option value="10">10s</option>
+        <option value="15" selected>15s</option>
+        <option value="30">30s</option>
+        <option value="60">60s</option>
+    </select>
+    <span id="refresh-timer"></span>
 </div>
 
 <%- include('partials/footer') %>

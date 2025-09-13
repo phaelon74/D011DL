@@ -1,8 +1,15 @@
 import pool from '../db/pool';
-import { downloadRepo } from '../hf/download';
+import { downloadFileWithProgress } from '../hf/downloadWithProgress';
+import got from 'got';
 import path from 'path';
 
 const STORAGE_ROOT = process.env.STORAGE_ROOT || '/media/models/models';
+
+interface HfFile {
+    path: string;
+    size: number;
+    type: 'file' | 'directory';
+}
 
 export async function processDownloadJob(jobId: string) {
     console.log(`Processing download job ${jobId}`);
@@ -27,8 +34,20 @@ export async function processDownloadJob(jobId: string) {
     try {
         await pool.query('UPDATE downloads SET status = $1, started_at = now() WHERE id = $2', ['running', jobId]);
 
-        // Call the new whole-repo download function
-        await downloadRepo(author, repo, revision, STORAGE_ROOT);
+        // 1. Get file list from HF
+        const treeUrl = `https://huggingface.co/api/models/${author}/${repo}/tree/${revision}`;
+        const fileList: HfFile[] = await got(treeUrl).json();
+        const filesToDownload = fileList.filter(f => f.type === 'file');
+        const totalSize = filesToDownload.reduce((acc, file) => acc + file.size, 0);
+
+        await pool.query('UPDATE downloads SET total_bytes = $1 WHERE id = $2', [totalSize, jobId]);
+
+        // 2. Download files sequentially
+        for (const file of filesToDownload) {
+            const fileUrl = `https://huggingface.co/${author}/${repo}/resolve/${revision}/${file.path}`;
+            const destinationPath = path.join(STORAGE_ROOT, author, repo, revision, file.path);
+            await downloadFileWithProgress(fileUrl, destinationPath, jobId, file.size);
+        }
 
         // On success, finalize the job
         await pool.query("UPDATE downloads SET status = 'succeeded', finished_at = now(), progress_pct = 100 WHERE id = $1", [jobId]);

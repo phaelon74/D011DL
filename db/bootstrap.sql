@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS downloads (
   started_at TIMESTAMPTZ NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
   finished_at TIMESTAMPTZ NULL,
+  bytes_downloaded BIGINT DEFAULT 0,
+  total_bytes BIGINT DEFAULT 0,
   log TEXT NULL
 );
 
