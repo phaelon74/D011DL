@@ -32,7 +32,7 @@ export async function processDownloadJob(jobId: string) {
 
         // On success, finalize the job
         await pool.query("UPDATE downloads SET status = 'succeeded', finished_at = now(), progress_pct = 100 WHERE id = $1", [jobId]);
-        await pool.query("UPDATE models SET is_downloaded = true, updated_at = now() WHERE id = $1", [model_id]);
+        await pool.query("UPDATE models SET is_downloaded = true, updated_at = now(), locations = array_append(locations, $1) WHERE id = $2", [model.root_path, model_id]);
 
     } catch (error: any) {
         console.error(`Job ${jobId} failed`, error);

@@ -1,0 +1,20 @@
+<%- include('partials/header') %>
+
+<div class="container">
+    <h1>Delete Model: <%= model.author %> / <%= model.repo %></h1>
+    <p>This model exists in the following locations. Please select which location(s) you would like to delete it from.</p>
+    
+    <form action="/delete-model/<%= model.id %>" method="POST">
+        <% model.locations.forEach(location => { %>
+            <div>
+                <input type="checkbox" name="locationsToDelete" value="<%= location %>" id="loc-<%= location %>">
+                <label for="loc-<%= location %>"><%= location %></label>
+            </div>
+        <% }) %>
+        <br>
+        <button type="submit">Delete Selected</button>
+        <a href="/">Cancel</a>
+    </form>
+</div>
+
+<%- include('partials/footer') %>

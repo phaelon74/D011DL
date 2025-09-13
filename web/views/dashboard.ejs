@@ -20,24 +20,42 @@
                 <th>Repo</th>
                 <th>Revision</th>
                 <th>Status</th>
+                <th>Location(s)</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
             <% models.forEach(model => { %>
-                <tr>
-                    <td><%= model.author %></td>
-                    <td><%= model.repo %></td>
-                    <td><%= model.revision %></td>
-                    <td>
-                        <span class="status-<%= model.status %>"><%= model.status %></span>
-                        <% if (model.status === 'failed') { %>
-                            <div class="error-log" title="<%= model.log %>">?</div>
-                            <form action="/retry-download/<%= model.download_id %>" method="POST" style="display: inline;">
-                                <button type="submit">Retry</button>
-                            </form>
-                        <% } %>
-                    </td>
-                </tr>
+                <% if (model.locations && model.locations.length > 0) { %>
+                    <tr>
+                        <td><%= model.author %></td>
+                        <td><%= model.repo %></td>
+                        <td><%= model.revision %></td>
+                        <td>
+                            <span class="status-<%= model.status %>"><%= model.status %></span>
+                        </td>
+                        <td><%= model.locations.join(', ') %></td>
+                        <td>
+                             <% if (model.status === 'succeeded') { %>
+                                <% if (!model.locations.includes('/media/netmodels/' + model.author + '/' + model.repo + '/' + model.revision)) { %>
+                                    <form action="/copy-model/<%= model.id %>" method="POST" style="display: inline;">
+                                        <button type="submit">Copy</button>
+                                    </form>
+                                    <form action="/move-model/<%= model.id %>" method="POST" style="display: inline;">
+                                        <button type="submit">Move</button>
+                                    </form>
+                                <% } %>
+                                <a href="/delete-model/<%= model.id %>"><button>Delete</button></a>
+                            <% } %>
+                            <% if (model.status === 'failed') { %>
+                                <div class="error-log" title="<%= model.log %>">?</div>
+                                <form action="/retry-download/<%= model.download_id %>" method="POST" style="display: inline;">
+                                    <button type="submit">Retry</button>
+                                </form>
+                            <% } %>
+                        </td>
+                    </tr>
+                <% } %>
             <% }) %>
         </tbody>
     </table>

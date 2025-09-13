@@ -99,6 +99,65 @@ app.post('/retry-download/:id', checkAuth, async (req, res) => {
     }
 });
 
+app.post('/copy-model/:id', checkAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await axios.post(`${API_BASE_URL}/models/${id}/copy`, {}, {
+             headers: { Authorization: `Bearer ${res.locals.token}` }
+        });
+        res.redirect('/');
+    } catch (error) {
+        console.error("Failed to copy model", error);
+        res.redirect('/');
+    }
+});
+
+app.post('/move-model/:id', checkAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await axios.post(`${API_BASE_URL}/models/${id}/move`, {}, {
+             headers: { Authorization: `Bearer ${res.locals.token}` }
+        });
+        res.redirect('/');
+    } catch (error) {
+        console.error("Failed to move model", error);
+        res.redirect('/');
+    }
+});
+
+app.get('/delete-model/:id', checkAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const response = await axios.get(`${API_BASE_URL}/db/models`, {
+             headers: { Authorization: `Bearer ${res.locals.token}` }
+        });
+        const model = response.data.find((m: any) => m.id === id);
+        if (!model) return res.redirect('/');
+        
+        res.render('delete-model', { title: 'Delete Model', model });
+    } catch (error) {
+        res.redirect('/');
+    }
+});
+
+app.post('/delete-model/:id', checkAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        let { locationsToDelete } = req.body;
+        if (typeof locationsToDelete === 'string') {
+            locationsToDelete = [locationsToDelete];
+        }
+        
+        await axios.post(`${API_BASE_URL}/models/${id}/delete`, { locationsToDelete }, {
+             headers: { Authorization: `Bearer ${res.locals.token}` }
+        });
+        res.redirect('/');
+    } catch (error) {
+        console.error("Failed to delete model", error);
+        res.redirect('/');
+    }
+});
+
 // Placeholder for other routes
 app.get('/models/:id', checkAuth, (req, res) => { res.send('Model details coming soon'); });
 app.get('/downloads', checkAuth, (req, res) => { res.send('Downloads page coming soon'); });

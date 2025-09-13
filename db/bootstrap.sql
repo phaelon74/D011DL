@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS models (
   total_size_bytes BIGINT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
+  locations TEXT[] DEFAULT ARRAY[]::TEXT[],
   UNIQUE (author, repo, revision)
 );
 

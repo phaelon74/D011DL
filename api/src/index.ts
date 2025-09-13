@@ -3,6 +3,7 @@ import fastifyJwt from '@fastify/jwt';
 import authRoutes from './auth/routes';
 import dbRoutes from './db/routes';
 import downloadsRoutes from './jobs/routes';
+import modelRoutes from './models/routes';
 
 const server = fastify({ logger: true });
 
@@ -21,6 +22,7 @@ server.decorate("authenticate", async function(request: any, reply: any) {
 server.register(authRoutes);
 server.register(dbRoutes);
 server.register(downloadsRoutes);
+server.register(modelRoutes);
 
 const start = async () => {
     try {
