@@ -32,17 +32,34 @@ export async function listDirectoryContents(dirPath: string): Promise<{ path: st
 
 
 export async function copyDirectory(source: string, destination: string): Promise<void> {
-    await fs.mkdir(path.dirname(destination), { recursive: true });
-    console.log(`Attempting to copy from "${source}" to "${destination}"`);
-    try {
-        await fs.cp(source, destination, { recursive: true });
-        console.log(`Successfully copied from "${source}" to "${destination}"`);
-    } catch (error) {
-        console.error(`ERROR during copy from "${source}" to "${destination}":`, error);
-        // Re-throw the error to ensure the job worker catches it and marks the job as failed.
-        throw error;
+    console.log(`[COPY] Starting robust copy from ${source} to ${destination}`);
+
+    // Ensure destination directory exists
+    await fs.mkdir(destination, { recursive: true });
+
+    const entries = await fs.readdir(source, { withFileTypes: true });
+
+    for (const entry of entries) {
+        const srcPath = path.join(source, entry.name);
+        const destPath = path.join(destination, entry.name);
+
+        if (entry.isDirectory()) {
+            // It's a directory, recurse
+            await copyDirectory(srcPath, destPath);
+        } else {
+            // It's a file, copy it
+            try {
+                console.log(`[COPY] Copying file: ${srcPath} -> ${destPath}`);
+                await fs.copyFile(srcPath, destPath);
+            } catch (error) {
+                console.error(`[COPY] FAILED to copy file: ${srcPath}. Error:`, error);
+                throw error; // Propagate error to fail the job
+            }
+        }
     }
+    console.log(`[COPY] Finished copying directory contents from ${source} to ${destination}`);
 }
+
 
 async function verifyCopy(source: string, destination: string): Promise<boolean> {
     try {
