@@ -36,18 +36,15 @@ const downloadsRoutes = async (server: FastifyInstance) => {
             const modelId = modelRes.rows[0].id;
 
             // 2. Create download job record
-            const downloadRes = await pool.query(
-                `INSERT INTO downloads (model_id, user_id, selection_json, status) 
-                 VALUES ($1, $2, $3, 'queued')
-                 RETURNING id`,
-                [modelId, userId, JSON.stringify(selection)]
+            const jobRes = await pool.query(
+                'INSERT INTO downloads (model_id, selection_json, status) VALUES ($1, $2, $3) RETURNING id',
+                [modelId, JSON.stringify(selection), 'queued']
             );
-            const downloadId = downloadRes.rows[0].id;
-            
-            // 3. Add to queue
-            queue.add(() => processDownloadJob(downloadId));
+            const jobId = jobRes.rows[0].id;
 
-            reply.code(202).send({ download_id: downloadId, status: 'queued' });
+            queue.add(() => processDownloadJob(jobId));
+
+            reply.code(202).send({ download_id: jobId, status: 'queued' });
 
         } catch (error) {
             if (error instanceof z.ZodError) {

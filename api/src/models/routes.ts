@@ -149,15 +149,21 @@ const modelRoutes = async (server: FastifyInstance) => {
             const modelRes = await pool.query('SELECT locations FROM models WHERE id = $1', [modelId]);
             if (modelRes.rows.length === 0) return reply.code(404).send({ message: 'Model not found' });
             
+            // Delete the files from the filesystem
             for (const loc of locationsToDelete) {
-                if (await checkExists(loc)) {
-                    await deleteDirectory(loc);
-                }
+                await deleteDirectory(loc);
             }
-
+            
             const currentLocations = modelRes.rows[0].locations;
             const newLocations = currentLocations.filter((loc: string) => !locationsToDelete.includes(loc));
-            await pool.query('UPDATE models SET locations = $1 WHERE id = $2', [newLocations, modelId]);
+
+            if (newLocations.length === 0) {
+                // If all locations are deleted, purge the model record entirely.
+                await pool.query('DELETE FROM models WHERE id = $1', [modelId]);
+            } else {
+                // Otherwise, just update the locations array.
+                await pool.query('UPDATE models SET locations = $1 WHERE id = $2', [newLocations, modelId]);
+            }
 
             reply.send({ message: 'Model deleted successfully from specified locations' });
         } catch (error) {
