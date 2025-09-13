@@ -26,18 +26,26 @@
         </thead>
         <tbody>
             <% models.forEach(model => { %>
-                <% if (model.locations && model.locations.length > 0) { %>
+                <% const shouldDisplay = (model.locations && model.locations.length > 0) || (model.is_downloaded && (!model.locations || model.locations.length === 0)); %>
+                <% if (shouldDisplay) { %>
                     <tr>
                         <td><%= model.author %></td>
                         <td><%= model.repo %></td>
                         <td><%= model.revision %></td>
                         <td>
-                            <span class="status-<%= model.status %>"><%= model.status %></span>
+                            <span class="status-<%= model.status %>"><%= model.status || 'Downloaded' %></span>
                         </td>
-                        <td><%= model.locations.join(', ') %></td>
                         <td>
-                             <% if (model.status === 'succeeded') { %>
-                                <% if (!model.locations.includes('/media/netmodels/' + model.author + '/' + model.repo + '/' + model.revision)) { %>
+                            <% if (model.locations && model.locations.length > 0) { %>
+                                <%= model.locations.join(', ') %>
+                            <% } else { %>
+                                <%= model.root_path %> <!-- Fallback for older records -->
+                            <% } %>
+                        </td>
+                        <td>
+                             <% if (model.status === 'succeeded' || model.is_downloaded) { %>
+                                <% const netPath = '/media/netmodels/' + model.author + '/' + model.repo + '/' + model.revision; %>
+                                <% if (!model.locations || !model.locations.includes(netPath)) { %>
                                     <form action="/copy-model/<%= model.id %>" method="POST" style="display: inline;">
                                         <button type="submit">Copy</button>
                                     </form>

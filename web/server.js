@@ -134,6 +134,11 @@ app.get('/delete-model/:id', checkAuth, async (req, res) => {
         const model = response.data.find((m) => m.id === id);
         if (!model) return res.redirect('/');
         
+        // Ensure locations is an array for older records
+        if (!model.locations || model.locations.length === 0) {
+            model.locations = [model.root_path];
+        }
+
         res.render('delete-model', { title: 'Delete Model', model });
     } catch (error) {
         res.redirect('/');
