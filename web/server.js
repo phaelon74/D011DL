@@ -99,6 +99,19 @@ app.post('/retry-download/:id', checkAuth, async (req, res) => {
     }
 });
 
+app.post('/rescan-model/:id', checkAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await axios.post(`${API_BASE_URL}/models/${id}/rescan`, {}, {
+             headers: { Authorization: `Bearer ${res.locals.token}` }
+        });
+        res.redirect('/');
+    } catch (error) {
+        console.error("Failed to rescan model", error);
+        res.redirect('/');
+    }
+});
+
 app.post('/copy-model/:id', checkAuth, async (req, res) => {
     try {
         const { id } = req.params;

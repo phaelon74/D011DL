@@ -14,6 +14,24 @@ export async function checkExists(filePath: string): Promise<boolean> {
     }
 }
 
+export async function listDirectoryContents(dirPath: string): Promise<{ path: string; size: number }[]> {
+    if (!await checkExists(dirPath)) {
+        return [];
+    }
+    // Note: The 'recursive' option requires Node.js v20.1.0 or later.
+    const dirents = await fs.readdir(dirPath, { withFileTypes: true, recursive: true });
+    const files = await Promise.all(dirents.map(async (dirent) => {
+        const fullPath = path.join(dirPath, dirent.path, dirent.name);
+        if (dirent.isFile()) {
+            const stats = await fs.stat(fullPath);
+            return { path: path.relative(dirPath, fullPath), size: stats.size };
+        }
+        return null;
+    }));
+    return files.filter(file => file !== null) as { path: string; size: number }[];
+}
+
+
 export async function copyDirectory(source: string, destination: string): Promise<void> {
     await execPromise(`cp -r "${source}" "${destination}"`);
 }

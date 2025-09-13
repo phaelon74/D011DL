@@ -64,6 +64,11 @@
                                 <% } %>
                                 <a href="/delete-model/<%= model.id %>"><button>Delete</button></a>
                             <% } %>
+                            <% if (model.status === 'failed' || model.status === 'running') { %>
+                                <form action="/rescan-model/<%= model.id %>" method="POST" style="display: inline;">
+                                    <button type="submit">Rescan</button>
+                                </form>
+                            <% } %>
                             <% if (model.status === 'failed') { %>
                                 <div class="error-log" title="<%= model.log %>">?</div>
                                 <form action="/retry-download/<%= model.download_id %>" method="POST" style="display: inline;">

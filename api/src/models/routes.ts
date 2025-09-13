@@ -1,8 +1,9 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import pool from '../db/pool';
-import { copyDirectory, moveDirectory, deleteDirectory, checkExists } from '../util/filesystem';
+import { copyDirectory, moveDirectory, deleteDirectory, checkExists, listDirectoryContents } from '../util/filesystem';
 import path from 'path';
+import got from 'got';
 
 const modelRoutes = async (server: FastifyInstance) => {
     server.addHook('onRequest', server.authenticate);
@@ -41,6 +42,45 @@ const modelRoutes = async (server: FastifyInstance) => {
         } catch (error) {
             console.error(error);
             reply.code(500).send({ message: 'Internal Server Error' });
+        }
+    });
+
+    // Rescan model directory
+    server.post('/models/:id/rescan', async (request, reply) => {
+        try {
+            const { id } = modelParamsSchema.parse(request.params);
+            const modelRes = await pool.query('SELECT * FROM models WHERE id = $1', [id]);
+            if (modelRes.rows.length === 0) return reply.code(404).send({ message: 'Model not found in DB' });
+
+            const model = modelRes.rows[0];
+            const { author, repo, revision, root_path } = model;
+
+            // 1. Get official file list from Hugging Face
+            const treeUrl = `https://huggingface.co/api/models/${author}/${repo}/tree/${revision}`;
+            const hfFileList: { path: string; size: number; type: string }[] = await got(treeUrl, { responseType: 'json' }).json();
+            const officialFiles = hfFileList.filter(f => f.type === 'file');
+            const officialTotalSize = officialFiles.reduce((acc, file) => acc + file.size, 0);
+
+            // 2. Get local file list
+            const localFiles = await listDirectoryContents(root_path);
+            const localTotalSize = localFiles.reduce((acc, file) => acc + file.size, 0);
+
+            // 3. Compare and update database
+            if (localTotalSize >= officialTotalSize && officialTotalSize > 0) {
+                const latestDownloadRes = await pool.query('SELECT id FROM downloads WHERE model_id = $1 ORDER BY created_at DESC LIMIT 1', [id]);
+                if (latestDownloadRes.rows.length > 0) {
+                    const downloadId = latestDownloadRes.rows[0].id;
+                    await pool.query("UPDATE downloads SET status = 'succeeded', finished_at = now(), progress_pct = 100, bytes_downloaded = $1, total_bytes = $1 WHERE id = $2", [officialTotalSize, downloadId]);
+                }
+                await pool.query("UPDATE models SET is_downloaded = true, updated_at = now(), locations = ARRAY[$1] WHERE id = $2", [root_path, id]);
+                return reply.send({ message: 'Rescan complete. Model status updated to succeeded.' });
+            } else {
+                return reply.code(409).send({ message: `Rescan complete. Model is incomplete. On disk: ${localTotalSize} bytes, Expected: ${officialTotalSize} bytes.` });
+            }
+
+        } catch (error) {
+            console.error(error);
+            reply.code(500).send({ message: 'Internal Server Error during rescan' });
         }
     });
 
