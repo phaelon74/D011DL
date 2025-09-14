@@ -106,7 +106,13 @@
 
                             <% if ((model.is_downloaded || (model.locations && model.locations.length > 0))) { %>
                                 <form method="POST" style="display: inline;">
-                                    <button type="submit" formaction="/copy-model/<%= model.id %>" <%= isJobActive ? 'disabled' : '' %>>Copy</button>
+                                    <% 
+                                        const hasPrimary = (model.locations || []).some(l => l.startsWith('/media/models'));
+                                        const hasNet = (model.locations || []).some(l => l.startsWith('/media/netmodels'));
+                                        const copyDisabled = isJobActive || (hasPrimary && hasNet);
+                                        let copyAction = `/copy-model/${model.id}`; // same endpoint; server decides direction
+                                    %>
+                                    <button type="submit" formaction="<%= copyAction %>" <%= copyDisabled ? 'disabled' : '' %>>Copy</button>
                                     <button type="submit" formaction="/move-model/<%= model.id %>" <%= isJobActive ? 'disabled' : '' %> disabled>Move</button>
                                     <button type="button" onclick="window.location.href='/delete-model/<%= model.id %>'" <%= isJobActive ? 'disabled' : '' %>>Delete</button>
                                     <button type="submit" formaction="/models/<%= model.id %>/rescan" <%= isJobActive ? 'disabled' : '' %>>Rescan</button>

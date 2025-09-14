@@ -24,7 +24,7 @@ const modelRoutes = async (server: FastifyInstance) => {
         return { model, sourcePath, netPath };
     }
 
-    // Copy model
+    // Copy model (between /media/models and /media/netmodels depending on current location)
     server.post('/models/:id/copy', { preHandler: [server.authenticate] }, async (request, reply) => {
         try {
             const { id: modelId } = request.params as { id: string };
@@ -35,13 +35,28 @@ const modelRoutes = async (server: FastifyInstance) => {
             }
             const model = modelRes.rows[0];
 
-            // Basic check to see if the source exists
-            const sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
-            if (!sourcePath || !await checkExists(sourcePath)) {
-                return reply.code(400).send({ message: 'Source model not found at primary location for copying.' });
+            const hasPrimary = model.locations.some((loc: string) => loc.startsWith(STORAGE_ROOT));
+            const hasNet = model.locations.some((loc: string) => loc.startsWith(NET_STORAGE_ROOT));
+
+            if (hasPrimary && hasNet) {
+                return reply.code(409).send({ message: 'Model already exists at both locations.' });
             }
 
-            const destPath = path.join(NET_STORAGE_ROOT, model.author, model.repo, model.revision);
+            let sourcePath: string | null = null;
+            let destPath: string | null = null;
+            if (hasPrimary) {
+                sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
+                destPath = path.join(NET_STORAGE_ROOT, model.author, model.repo, model.revision);
+            } else if (hasNet) {
+                sourcePath = model.locations.find((loc: string) => loc.startsWith(NET_STORAGE_ROOT));
+                destPath = path.join(STORAGE_ROOT, model.author, model.repo, model.revision);
+            } else {
+                return reply.code(400).send({ message: 'Model has no known on-disk location to copy from.' });
+            }
+
+            if (!sourcePath || !await checkExists(sourcePath)) {
+                return reply.code(400).send({ message: 'Source model not found on disk.' });
+            }
             
             // --- START DEBUG LOGGING for COPY ---
             console.log('[DEBUG] Initiating COPY operation for model ID:', modelId);
@@ -107,11 +122,48 @@ const modelRoutes = async (server: FastifyInstance) => {
         }
     });
 
-    // Move model
+    // Move model: copy using robust copy, verify, then delete source on success
     server.post('/models/:id/move', { preHandler: [server.authenticate] }, async (request, reply) => {
-        // THIS FEATURE IS TEMPORARILY DISABLED FOR SAFETY.
-        console.warn('MOVE operation is temporarily disabled pending reliability fixes for the COPY function.');
-        return reply.code(503).send({ message: 'Move operation is temporarily disabled.' });
+        try {
+            const { id: modelId } = request.params as { id: string };
+            const modelRes = await pool.query('SELECT * FROM models WHERE id = $1', [modelId]);
+            if (modelRes.rows.length === 0) {
+                return reply.code(404).send({ message: 'Model not found' });
+            }
+            const model = modelRes.rows[0];
+
+            const hasPrimary = model.locations.some((loc: string) => loc.startsWith(STORAGE_ROOT));
+            const hasNet = model.locations.some((loc: string) => loc.startsWith(NET_STORAGE_ROOT));
+
+            if (hasPrimary && !hasNet) {
+                // move from primary to netmodels
+                const sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
+                const destPath = path.join(NET_STORAGE_ROOT, model.author, model.repo, model.revision);
+                const jobRes = await pool.query(
+                    'INSERT INTO fs_jobs (model_id, type, source_path, destination_path, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+                    [modelId, 'move', sourcePath, destPath, 'queued']
+                );
+                const jobId = jobRes.rows[0].id;
+                fsQueue.add(() => processFsJob(jobId));
+                return reply.code(202).send({ message: 'Move job started', jobId });
+            } else if (!hasPrimary && hasNet) {
+                // move from netmodels to primary
+                const sourcePath = model.locations.find((loc: string) => loc.startsWith(NET_STORAGE_ROOT));
+                const destPath = path.join(STORAGE_ROOT, model.author, model.repo, model.revision);
+                const jobRes = await pool.query(
+                    'INSERT INTO fs_jobs (model_id, type, source_path, destination_path, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+                    [modelId, 'move', sourcePath, destPath, 'queued']
+                );
+                const jobId = jobRes.rows[0].id;
+                fsQueue.add(() => processFsJob(jobId));
+                return reply.code(202).send({ message: 'Move job started', jobId });
+            } else {
+                return reply.code(409).send({ message: 'Move requires model at exactly one location.' });
+            }
+        } catch (error) {
+            console.error('Error starting move job:', error);
+            reply.code(500).send({ message: 'Failed to start move job.' });
+        }
     });
 
     // Delete model
