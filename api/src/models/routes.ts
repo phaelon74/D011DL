@@ -83,7 +83,7 @@ const modelRoutes = async (server: FastifyInstance) => {
         }
     });
 
-    // Rescan model directory
+    // Rescan model directory: verifies local presence and compares with HF expected files
     server.post('/models/:id/rescan', async (request, reply) => {
         try {
             const { id } = modelParamsSchema.parse(request.params);
@@ -91,30 +91,65 @@ const modelRoutes = async (server: FastifyInstance) => {
             if (modelRes.rows.length === 0) return reply.code(404).send({ message: 'Model not found in DB' });
 
             const model = modelRes.rows[0];
-            const { author, repo, revision, root_path } = model;
+            const { author, repo, revision } = model;
+
+            // Determine which local path to scan: prefer root_path if it exists; otherwise, first existing location
+            let scanPath: string | null = model.root_path || null;
+            if (!scanPath || !(await checkExists(scanPath))) {
+                const existing = (model.locations || []).find(async (loc: string) => await checkExists(loc));
+                // Note: cannot use async inside find directly; fall back to sequential check
+                if (!existing) {
+                    for (const loc of (model.locations || [])) {
+                        if (await checkExists(loc)) { scanPath = loc; break; }
+                    }
+                } else {
+                    scanPath = model.locations[0];
+                }
+            }
+            if (!scanPath) {
+                // Nothing on disk; mark as not downloaded
+                await pool.query("UPDATE models SET is_downloaded = false, updated_at = now() WHERE id = $1", [id]);
+                return reply.code(409).send({ message: 'Local files not found at any recorded location.' });
+            }
 
             // 1. Get official file list from Hugging Face
             const treeUrl = `https://huggingface.co/api/models/${author}/${repo}/tree/${revision}`;
             const hfFileList: { path: string; size: number; type: string }[] = await got(treeUrl, { responseType: 'json' }).json();
             const officialFiles = hfFileList.filter(f => f.type === 'file');
             const officialTotalSize = officialFiles.reduce((acc, file) => acc + file.size, 0);
+            const officialCount = officialFiles.length;
 
             // 2. Get local file list
-            const localFiles = await listDirectoryContents(root_path);
+            const localFiles = await listDirectoryContents(scanPath);
             const localTotalSize = localFiles.reduce((acc, file) => acc + file.size, 0);
+            const localCount = localFiles.length;
 
             // 3. Compare and update database
-            if (localTotalSize >= officialTotalSize && officialTotalSize > 0) {
+            const isMatch = officialTotalSize > 0 && localTotalSize === officialTotalSize && localCount === officialCount;
+
+            if (isMatch) {
+                // Mark success and align root_path to the current scan path
+                await pool.query("UPDATE models SET is_downloaded = true, updated_at = now(), root_path = $1 WHERE id = $2", [scanPath, id]);
+
+                // If there is a latest download job, mark it succeeded (optional best-effort)
                 const latestDownloadRes = await pool.query('SELECT id FROM downloads WHERE model_id = $1 ORDER BY created_at DESC LIMIT 1', [id]);
                 if (latestDownloadRes.rows.length > 0) {
                     const downloadId = latestDownloadRes.rows[0].id;
                     await pool.query("UPDATE downloads SET status = 'succeeded', finished_at = now(), progress_pct = 100, bytes_downloaded = $1, total_bytes = $1 WHERE id = $2", [officialTotalSize, downloadId]);
                 }
-                await pool.query("UPDATE models SET is_downloaded = true, updated_at = now(), locations = ARRAY[$1] WHERE id = $2", [root_path, id]);
-                return reply.send({ message: 'Rescan complete. Model status updated to succeeded.' });
-            } else {
-                return reply.code(409).send({ message: `Rescan complete. Model is incomplete. On disk: ${localTotalSize} bytes, Expected: ${officialTotalSize} bytes.` });
+                return reply.send({ message: 'Rescan complete. Model matches Hugging Face metadata.' });
             }
+
+            // Incomplete: mark not downloaded and create a failed download record so UI can Retry
+            await pool.query("UPDATE models SET is_downloaded = false, updated_at = now() WHERE id = $1", [id]);
+            const prevDl = await pool.query('SELECT selection_json FROM downloads WHERE model_id = $1 ORDER BY created_at DESC LIMIT 1', [id]);
+            const selectionJson = prevDl.rows.length > 0 ? prevDl.rows[0].selection_json : JSON.stringify([{ path: '.', type: 'dir' }]);
+            await pool.query(
+                `INSERT INTO downloads (model_id, selection_json, status, bytes_downloaded, total_bytes, log, finished_at)
+                 VALUES ($1, $2, 'failed', $3, $4, $5, now())`,
+                [id, selectionJson, localTotalSize, officialTotalSize, `Rescan mismatch: local ${localCount} files / ${localTotalSize} bytes; expected ${officialCount} files / ${officialTotalSize} bytes.`]
+            );
+            return reply.code(409).send({ message: 'Rescan incomplete: local files differ from Hugging Face.' });
 
         } catch (error) {
             console.error(error);
