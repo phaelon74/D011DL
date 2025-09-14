@@ -36,20 +36,33 @@ export async function copyDirectory(source: string, destination: string): Promis
     console.log(`[COPY] Starting verbose shell copy from ${source} to ${destination}`);
 
     return new Promise((resolve, reject) => {
-        const command = `cp -rv "${source}/." "${destination}/"`;
-        console.log(`[COPY] Executing command: ${command}`);
+        // First, ensure the destination's parent directory exists.
+        const mkdirCommand = `mkdir -p "${destination}"`;
+        console.log(`[COPY] Executing command: ${mkdirCommand}`);
 
-        exec(command, (error, stdout, stderr) => {
-            console.log(`[COPY] STDOUT: ${stdout}`);
-            console.error(`[COPY] STDERR: ${stderr}`);
-
-            if (error) {
-                console.error(`[COPY] FAILED with error:`, error);
-                reject(error);
-            } else {
-                console.log(`[COPY] Shell command finished successfully.`);
-                resolve();
+        exec(mkdirCommand, (mkdirError, mkdirStdout, mkdirStderr) => {
+            if (mkdirError) {
+                console.error(`[COPY] FAILED to create parent directory:`, mkdirError);
+                console.error(`[COPY] MKDIR STDERR: ${mkdirStderr}`);
+                return reject(mkdirError);
             }
+
+            console.log(`[COPY] Successfully created parent directory.`);
+            const command = `cp -rv "${source}/." "${destination}/"`;
+            console.log(`[COPY] Executing command: ${command}`);
+    
+            exec(command, (error, stdout, stderr) => {
+                console.log(`[COPY] STDOUT: ${stdout}`);
+                console.error(`[COPY] STDERR: ${stderr}`);
+    
+                if (error) {
+                    console.error(`[COPY] FAILED with error:`, error);
+                    reject(error);
+                } else {
+                    console.log(`[COPY] Shell command finished successfully.`);
+                    resolve();
+                }
+            });
         });
     });
 }
