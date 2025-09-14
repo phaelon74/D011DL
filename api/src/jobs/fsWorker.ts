@@ -59,7 +59,21 @@ export async function processFsJob(jobId: string) {
                 [job.destination_path, job.model_id]
             );
         } else if (job.type === 'move') {
-            await moveDirectory(job.source_path, job.destination_path);
+            const updateIntervalMs = 2000;
+            let lastUpdate = 0;
+            await moveDirectory(job.source_path, job.destination_path, async (bytesCopied: number) => {
+                const now = Date.now();
+                if (now - lastUpdate > updateIntervalMs) {
+                    lastUpdate = now;
+                    const pct = totalBytes && totalBytes > 0 ? Math.min(100, Math.floor((bytesCopied / totalBytes) * 100)) : 0;
+                    try {
+                        await pool.query(
+                            "UPDATE fs_jobs SET bytes_downloaded = $1, progress_pct = $2 WHERE id = $3",
+                            [bytesCopied, pct, jobId]
+                        );
+                    } catch (e) {}
+                }
+            });
             await pool.query(
                 "UPDATE models SET locations = array_replace(locations, $1, $2) WHERE id = $3",
                 [job.source_path, job.destination_path, job.model_id]

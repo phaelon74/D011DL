@@ -130,10 +130,10 @@ async function verifyCopy(source: string, destination: string): Promise<boolean>
     }
 }
 
-export async function moveDirectory(source: string, destination: string): Promise<void> {
+export async function moveDirectory(source: string, destination: string, onProgress?: (bytesCopied: number) => void | Promise<void>): Promise<void> {
     // This is a robust implementation for moving across different filesystems (e.g., Docker volumes).
     // It copies the directory, verifies the copy, and only then deletes the source.
-    await copyDirectory(source, destination);
+    await copyDirectory(source, destination, onProgress);
 
     const isVerified = await verifyCopy(source, destination);
 
