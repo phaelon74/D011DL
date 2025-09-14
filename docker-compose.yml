@@ -7,6 +7,7 @@ services:
     env_file: .env
     volumes:
       - /media/models:/media/models
+      - /media/netmodels:/media/netmodels
     networks:
       - modelnet
     ports:
@@ -23,6 +24,7 @@ services:
       - api
     volumes:
       - /media/models:/media/models:ro
+      - /media/netmodels:/media/netmodels:ro
     networks:
       - modelnet
     ports:
