@@ -113,7 +113,8 @@
                                         let copyAction = `/copy-model/${model.id}`; // same endpoint; server decides direction
                                     %>
                                     <button type="submit" formaction="<%= copyAction %>" <%= copyDisabled ? 'disabled' : '' %>>Copy</button>
-                                    <button type="submit" formaction="/move-model/<%= model.id %>" <%= isJobActive ? 'disabled' : '' %> disabled>Move</button>
+                                    <% const moveEnabled = (!isJobActive) && hasPrimary && !hasNet; %>
+                                    <button type="submit" formaction="/move-model/<%= model.id %>" <%= moveEnabled ? '' : 'disabled' %>>Move</button>
                                     <button type="button" onclick="window.location.href='/delete-model/<%= model.id %>'" <%= isJobActive ? 'disabled' : '' %>>Delete</button>
                                     <button type="submit" formaction="/models/<%= model.id %>/rescan" <%= isJobActive ? 'disabled' : '' %>>Rescan</button>
                                 </form>

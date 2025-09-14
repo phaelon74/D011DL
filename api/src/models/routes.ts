@@ -122,7 +122,7 @@ const modelRoutes = async (server: FastifyInstance) => {
         }
     });
 
-    // Move model: copy using robust copy, verify, then delete source on success
+    // Move model: allowed only from /media/models -> /media/netmodels; copy, verify, then delete source
     server.post('/models/:id/move', { preHandler: [server.authenticate] }, async (request, reply) => {
         try {
             const { id: modelId } = request.params as { id: string };
@@ -135,6 +135,7 @@ const modelRoutes = async (server: FastifyInstance) => {
             const hasPrimary = model.locations.some((loc: string) => loc.startsWith(STORAGE_ROOT));
             const hasNet = model.locations.some((loc: string) => loc.startsWith(NET_STORAGE_ROOT));
 
+            // Only allow moving when it exists only in primary
             if (hasPrimary && !hasNet) {
                 // move from primary to netmodels
                 const sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
@@ -146,19 +147,8 @@ const modelRoutes = async (server: FastifyInstance) => {
                 const jobId = jobRes.rows[0].id;
                 fsQueue.add(() => processFsJob(jobId));
                 return reply.code(202).send({ message: 'Move job started', jobId });
-            } else if (!hasPrimary && hasNet) {
-                // move from netmodels to primary
-                const sourcePath = model.locations.find((loc: string) => loc.startsWith(NET_STORAGE_ROOT));
-                const destPath = path.join(STORAGE_ROOT, model.author, model.repo, model.revision);
-                const jobRes = await pool.query(
-                    'INSERT INTO fs_jobs (model_id, type, source_path, destination_path, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-                    [modelId, 'move', sourcePath, destPath, 'queued']
-                );
-                const jobId = jobRes.rows[0].id;
-                fsQueue.add(() => processFsJob(jobId));
-                return reply.code(202).send({ message: 'Move job started', jobId });
             } else {
-                return reply.code(409).send({ message: 'Move requires model at exactly one location.' });
+                return reply.code(409).send({ message: 'Move is only enabled when the model exists only in /media/models.' });
             }
         } catch (error) {
             console.error('Error starting move job:', error);
