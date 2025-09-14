@@ -70,8 +70,9 @@ export async function processDownloadJob(jobId: string) {
 
         await pool.query("UPDATE downloads SET status = 'succeeded', finished_at = now(), progress_pct = 100 WHERE id = $1", [jobId]);
         
-        // Use the model's root_path, which is the single source of truth for its primary location.
-        await pool.query("UPDATE models SET is_downloaded = true, updated_at = now(), locations = array_append(locations, root_path) WHERE id = $1 AND NOT (root_path = ANY(locations))", [model_id]);
+        // The location is already added when the job is created.
+        // On success, we just need to mark the model as downloaded.
+        await pool.query("UPDATE models SET is_downloaded = true, updated_at = now() WHERE id = $1", [model_id]);
 
     } catch (error: any) {
         console.error(`Job ${jobId} failed`, error);
