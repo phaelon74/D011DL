@@ -29,8 +29,8 @@ export async function getModels() {
                 type as job_type,
                 status as job_status,
                 log as job_log,
-                NULL as bytes_downloaded,
-                NULL as total_bytes,
+                bytes_downloaded,
+                total_bytes,
                 created_at
             FROM fs_jobs
             WHERE model_id = m.id

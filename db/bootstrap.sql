@@ -77,6 +77,10 @@ CREATE TABLE fs_jobs (
     status VARCHAR(20) NOT NULL DEFAULT 'queued',
     source_path TEXT NOT NULL,
     destination_path TEXT NOT NULL,
+    -- Progress fields for long-running file operations
+    progress_pct INTEGER NOT NULL DEFAULT 0,
+    bytes_downloaded BIGINT NOT NULL DEFAULT 0,
+    total_bytes BIGINT NOT NULL DEFAULT 0,
     log TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     started_at TIMESTAMPTZ,

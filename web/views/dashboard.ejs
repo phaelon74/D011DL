@@ -49,7 +49,7 @@
                                         <% if (job_type === 'move') { %> Moving... <% } %>
                                     </strong>
                                 </div>
-                                <% if (job_type === 'download' && model.total_bytes > 0) { %>
+                                <% if ((job_type === 'download' || job_type === 'copy') && model.total_bytes > 0) { %>
                                     <progress value="<%= model.bytes_downloaded %>" max="<%= model.total_bytes %>"></progress>
                                     <div class="progress-text">
                                         <%= (model.bytes_downloaded / 1024 / 1024).toFixed(2) %> MB / 

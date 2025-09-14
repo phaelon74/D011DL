@@ -32,7 +32,13 @@ export async function listDirectoryContents(dirPath: string): Promise<{ path: st
 }
 
 
-export async function copyDirectory(source: string, destination: string): Promise<void> {
+export async function getDirectorySize(dirPath: string): Promise<number> {
+    const files = await listDirectoryContents(dirPath);
+    return files.reduce((acc, file) => acc + file.size, 0);
+}
+
+
+export async function copyDirectory(source: string, destination: string, onProgress?: (bytesCopied: number) => void | Promise<void>): Promise<void> {
     console.log(`[COPY] Starting verbose shell copy from ${source} to ${destination}`);
 
     return new Promise((resolve, reject) => {
@@ -50,11 +56,35 @@ export async function copyDirectory(source: string, destination: string): Promis
             console.log(`[COPY] Successfully created parent directory.`);
             const command = `cp -rv "${source}/." "${destination}/"`;
             console.log(`[COPY] Executing command: ${command}`);
-    
-            exec(command, (error, stdout, stderr) => {
+            
+            // Periodically report destination size if a progress callback is provided
+            let progressTimer: NodeJS.Timeout | null = null;
+            if (onProgress) {
+                progressTimer = setInterval(async () => {
+                    try {
+                        const bytesCopied = await getDirectorySize(destination);
+                        await onProgress(bytesCopied);
+                    } catch (e) {
+                        // ignore transient errors while files are in flux
+                    }
+                }, 2000);
+            }
+
+            exec(command, async (error, stdout, stderr) => {
                 console.log(`[COPY] STDOUT: ${stdout}`);
                 console.error(`[COPY] STDERR: ${stderr}`);
-    
+                if (progressTimer) {
+                    clearInterval(progressTimer);
+                    progressTimer = null;
+                }
+                // Final progress update
+                if (onProgress) {
+                    try {
+                        const finalSize = await getDirectorySize(destination);
+                        await onProgress(finalSize);
+                    } catch (e) {}
+                }
+
                 if (error) {
                     console.error(`[COPY] FAILED with error:`, error);
                     reject(error);
