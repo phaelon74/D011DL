@@ -9,7 +9,9 @@ export async function getModels() {
             j.job_status,
             j.job_log,
             j.bytes_downloaded,
-            j.total_bytes
+            j.total_bytes,
+            j.started_at as job_started_at,
+            j.finished_at as job_finished_at
         FROM
             models m
         LEFT JOIN LATERAL (
@@ -20,7 +22,9 @@ export async function getModels() {
                 log as job_log,
                 bytes_downloaded,
                 total_bytes,
-                created_at
+                created_at,
+                started_at,
+                finished_at
             FROM downloads
             WHERE model_id = m.id
             UNION ALL
@@ -31,7 +35,9 @@ export async function getModels() {
                 log as job_log,
                 bytes_downloaded,
                 total_bytes,
-                created_at
+                created_at,
+                started_at,
+                finished_at
             FROM fs_jobs
             WHERE model_id = m.id
             ORDER BY created_at DESC

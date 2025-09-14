@@ -20,6 +20,7 @@
                 <th>Repo</th>
                 <th>Revision</th>
                 <th>Status / Progress</th>
+                <th>Last Status / Speed</th>
                 <th>Location(s)</th>
                 <th>Actions</th>
             </tr>
@@ -62,6 +63,31 @@
                                 </div>
                             <% } else if (model.is_downloaded || (model.locations && model.locations.length > 0)) { %>
                                 <div class="status-succeeded">succeeded</div>
+                            <% } %>
+                        </td>
+                        <td>
+                            <% if (model.job_id && model.job_status === 'succeeded') { %>
+                                <div>
+                                    <strong><%= (model.job_type === 'download' ? 'Download' : (model.job_type === 'copy' ? 'Copy' : 'Move')) %></strong>
+                                </div>
+                                <% 
+                                    const started = model.job_started_at ? new Date(model.job_started_at) : null;
+                                    const finished = model.job_finished_at ? new Date(model.job_finished_at) : null;
+                                    const durationSec = (started && finished) ? Math.max(0, (finished - started) / 1000) : null;
+                                    const totalBytes = model.total_bytes || 0;
+                                    const mb = totalBytes / 1024 / 1024;
+                                    const speedMBs = (durationSec && durationSec > 0) ? (mb / durationSec) : null;
+                                %>
+                                <div>
+                                    <%= speedMBs !== null ? speedMBs.toFixed(2) + ' MB/s' : '—' %>
+                                </div>
+                                <div>
+                                    <%= durationSec !== null ? durationSec.toFixed(1) + ' s' : '—' %>
+                                </div>
+                            <% } else { %>
+                                <div>—</div>
+                                <div>—</div>
+                                <div>—</div>
                             <% } %>
                         </td>
                         <td>
