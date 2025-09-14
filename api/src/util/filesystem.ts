@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { exec } from 'child_process';
 
 export async function checkExists(filePath: string): Promise<boolean> {
     try {
@@ -32,32 +33,25 @@ export async function listDirectoryContents(dirPath: string): Promise<{ path: st
 
 
 export async function copyDirectory(source: string, destination: string): Promise<void> {
-    console.log(`[COPY] Starting robust copy from ${source} to ${destination}`);
+    console.log(`[COPY] Starting verbose shell copy from ${source} to ${destination}`);
 
-    // Ensure destination directory exists
-    await fs.mkdir(destination, { recursive: true });
+    return new Promise((resolve, reject) => {
+        const command = `cp -rv "${source}/." "${destination}/"`;
+        console.log(`[COPY] Executing command: ${command}`);
 
-    const entries = await fs.readdir(source, { withFileTypes: true });
+        exec(command, (error, stdout, stderr) => {
+            console.log(`[COPY] STDOUT: ${stdout}`);
+            console.error(`[COPY] STDERR: ${stderr}`);
 
-    for (const entry of entries) {
-        const srcPath = path.join(source, entry.name);
-        const destPath = path.join(destination, entry.name);
-
-        if (entry.isDirectory()) {
-            // It's a directory, recurse
-            await copyDirectory(srcPath, destPath);
-        } else {
-            // It's a file, copy it
-            try {
-                console.log(`[COPY] Copying file: ${srcPath} -> ${destPath}`);
-                await fs.copyFile(srcPath, destPath);
-            } catch (error) {
-                console.error(`[COPY] FAILED to copy file: ${srcPath}. Error:`, error);
-                throw error; // Propagate error to fail the job
+            if (error) {
+                console.error(`[COPY] FAILED with error:`, error);
+                reject(error);
+            } else {
+                console.log(`[COPY] Shell command finished successfully.`);
+                resolve();
             }
-        }
-    }
-    console.log(`[COPY] Finished copying directory contents from ${source} to ${destination}`);
+        });
+    });
 }
 
 
