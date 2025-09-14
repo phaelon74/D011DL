@@ -12,25 +12,31 @@ export async function processFsJob(jobId: string) {
     const job = jobRes.rows[0];
 
     try {
-        // Ensure progress columns exist (idempotent)
-        await pool.query("ALTER TABLE fs_jobs ADD COLUMN IF NOT EXISTS bytes_downloaded BIGINT NOT NULL DEFAULT 0");
-        await pool.query("ALTER TABLE fs_jobs ADD COLUMN IF NOT EXISTS total_bytes BIGINT NOT NULL DEFAULT 0");
-        await pool.query("ALTER TABLE fs_jobs ADD COLUMN IF NOT EXISTS progress_pct INTEGER NOT NULL DEFAULT 0");
-
-        // If it's a copy or move, we can compute total bytes from the source
+        // Best-effort: compute total bytes from source to support progress when columns exist
         let totalBytes: number | null = null;
         if (job.type === 'copy' || job.type === 'move') {
-            const files = await listDirectoryContents(job.source_path);
-            totalBytes = files.reduce((acc, f) => acc + f.size, 0);
+            try {
+                const files = await listDirectoryContents(job.source_path);
+                totalBytes = files.reduce((acc, f) => acc + f.size, 0);
+            } catch (e) {
+                totalBytes = null;
+            }
         }
 
-        await pool.query(
-            "UPDATE fs_jobs SET status = 'running', started_at = now(), total_bytes = COALESCE($2, total_bytes) WHERE id = $1",
-            [jobId, totalBytes]
-        );
+        // Mark running; if progress columns exist, set total_bytes; otherwise fall back
+        try {
+            await pool.query(
+                "UPDATE fs_jobs SET status = 'running', started_at = now(), total_bytes = COALESCE($2, total_bytes) WHERE id = $1",
+                [jobId, totalBytes]
+            );
+        } catch (e) {
+            await pool.query(
+                "UPDATE fs_jobs SET status = 'running', started_at = now() WHERE id = $1",
+                [jobId]
+            );
+        }
 
         if (job.type === 'copy') {
-            // Wrap copy to periodically update bytes_downloaded based on destination size
             const updateIntervalMs = 2000;
             let lastUpdate = 0;
             await copyDirectory(job.source_path, job.destination_path, async (bytesCopied: number) => {
@@ -38,10 +44,14 @@ export async function processFsJob(jobId: string) {
                 if (now - lastUpdate > updateIntervalMs) {
                     lastUpdate = now;
                     const pct = totalBytes && totalBytes > 0 ? Math.min(100, Math.floor((bytesCopied / totalBytes) * 100)) : 0;
-                    await pool.query(
-                        "UPDATE fs_jobs SET bytes_downloaded = $1, progress_pct = $2 WHERE id = $3",
-                        [bytesCopied, pct, jobId]
-                    );
+                    try {
+                        await pool.query(
+                            "UPDATE fs_jobs SET bytes_downloaded = $1, progress_pct = $2 WHERE id = $3",
+                            [bytesCopied, pct, jobId]
+                        );
+                    } catch (e) {
+                        // Progress columns may not exist; ignore
+                    }
                 }
             });
             await pool.query(
@@ -56,10 +66,14 @@ export async function processFsJob(jobId: string) {
             );
         }
 
-        await pool.query(
-            "UPDATE fs_jobs SET status = 'succeeded', finished_at = now(), bytes_downloaded = GREATEST(bytes_downloaded, total_bytes), progress_pct = 100 WHERE id = $1",
-            [jobId]
-        );
+        try {
+            await pool.query(
+                "UPDATE fs_jobs SET status = 'succeeded', finished_at = now(), bytes_downloaded = GREATEST(bytes_downloaded, total_bytes), progress_pct = 100 WHERE id = $1",
+                [jobId]
+            );
+        } catch (e) {
+            await pool.query("UPDATE fs_jobs SET status = 'succeeded', finished_at = now() WHERE id = $1", [jobId]);
+        }
         console.log(`Filesystem job ${jobId} succeeded.`);
     } catch (error: any) {
         const errorMessage = error.message || 'An unknown error occurred.';
