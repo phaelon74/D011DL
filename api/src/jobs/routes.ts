@@ -4,6 +4,7 @@ import pool from '../db/pool';
 import downloadQueue from './queue';
 import { processDownloadJob } from './worker';
 import { STORAGE_ROOT } from '../config';
+import path from 'path';
 
 const downloadsRoutes = async (server: FastifyInstance) => {
 
@@ -11,7 +12,8 @@ const downloadsRoutes = async (server: FastifyInstance) => {
         try {
             const { author, repo, revision, selection } = createDownloadBodySchema.parse(request.body);
             
-            const rootPath = `${STORAGE_ROOT}/${author}/${repo}/${revision}`;
+            // Build path safely to avoid accidental double slashes if STORAGE_ROOT has a trailing '/'
+            const rootPath = path.join(STORAGE_ROOT, author, repo, revision);
 
             // 1. Upsert model
             const modelRes = await pool.query(
