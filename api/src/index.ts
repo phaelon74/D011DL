@@ -15,6 +15,12 @@ async function reconcileStaleJobs() {
         if (result.rowCount) {
             console.log(`Reconciled ${result.rowCount} stale running jobs.`);
         }
+        const fsRes = await pool.query(
+            "UPDATE fs_jobs SET status = 'failed', log = 'Filesystem job marked as failed due to server restart.' WHERE status = 'running'"
+        );
+        if (fsRes.rowCount) {
+            console.log(`Reconciled ${fsRes.rowCount} stale running filesystem jobs.`);
+        }
     } catch (error) {
         console.error('Error reconciling stale jobs:', error);
     }
