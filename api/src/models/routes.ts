@@ -205,7 +205,7 @@ const modelRoutes = async (server: FastifyInstance) => {
 
     // Delete model
     const deleteBodySchema = z.object({
-        locationsToDelete: z.array(z.string())
+        locationsToDelete: z.array(z.string()).optional().default([])
     });
     server.post('/models/:id/delete', { preHandler: [server.authenticate] }, async (request, reply) => {
         try {
@@ -214,7 +214,13 @@ const modelRoutes = async (server: FastifyInstance) => {
             const modelRes = await pool.query('SELECT locations FROM models WHERE id = $1', [modelId]);
             if (modelRes.rows.length === 0) return reply.code(404).send({ message: 'Model not found' });
             
-            // Delete the files from the filesystem
+            // If locations list is empty, this is a DB-only delete request
+            if (locationsToDelete.length === 0) {
+                await pool.query('DELETE FROM models WHERE id = $1', [modelId]);
+                return reply.send({ message: 'Model deleted from database' });
+            }
+
+            // Otherwise delete the files from the filesystem
             for (const loc of locationsToDelete) {
                 await deleteDirectory(loc);
             }

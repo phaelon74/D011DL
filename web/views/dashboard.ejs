@@ -29,8 +29,8 @@
             <% if (models && models.length > 0) { %>
                 <% models.forEach(model => { %>
                     <% 
-                        // A model should be displayed if it has a location on disk, is marked as downloaded, or has any job associated with it.
-                        const shouldDisplay = (model.locations && model.locations.length > 0) || model.is_downloaded || model.job_id; 
+                        // Show rows when there is any model record
+                        const shouldDisplay = true; 
                     %>
                     <% if(shouldDisplay) { %>
                     <tr>
@@ -104,19 +104,25 @@
                                 </form>
                             <% } %>
 
-                            <% if ((model.is_downloaded || (model.locations && model.locations.length > 0))) { %>
+                            <% const hasPrimary = (model.locations || []).some(l => l.startsWith('/media/models'));
+                               const hasNet = (model.locations || []).some(l => l.startsWith('/media/netmodels'));
+                               const hasAnyLocation = hasPrimary || hasNet;
+                            %>
+                            <% if (hasAnyLocation || model.is_downloaded) { %>
                                 <form method="POST" style="display: inline;">
-                                    <% 
-                                        const hasPrimary = (model.locations || []).some(l => l.startsWith('/media/models'));
-                                        const hasNet = (model.locations || []).some(l => l.startsWith('/media/netmodels'));
-                                        const copyDisabled = isJobActive || (hasPrimary && hasNet);
-                                        let copyAction = `/copy-model/${model.id}`; // same endpoint; server decides direction
+                                    <% const copyDisabled = isJobActive || (hasPrimary && hasNet);
+                                       let copyAction = `/copy-model/${model.id}`;
                                     %>
                                     <button type="submit" formaction="<%= copyAction %>" <%= copyDisabled ? 'disabled' : '' %>>Copy</button>
                                     <% const moveEnabled = (!isJobActive) && hasPrimary && !hasNet; %>
                                     <button type="submit" formaction="/move-model/<%= model.id %>" <%= moveEnabled ? '' : 'disabled' %>>Move</button>
                                     <button type="button" onclick="window.location.href='/delete-model/<%= model.id %>'" <%= isJobActive ? 'disabled' : '' %>>Delete</button>
                                     <button type="submit" formaction="/models/<%= model.id %>/rescan" <%= isJobActive ? 'disabled' : '' %>>Rescan</button>
+                                </form>
+                            <% } else { %>
+                                <form method="POST" style="display: inline;">
+                                    <button type="submit" formaction="/retry-model/<%= model.id %>" <%= isJobActive ? 'disabled' : '' %>>Retry</button>
+                                    <button type="submit" formaction="/delete-model-immediate/<%= model.id %>" <%= isJobActive ? 'disabled' : '' %>>Delete</button>
                                 </form>
                             <% } %>
                         </td>
