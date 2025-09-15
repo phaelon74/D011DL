@@ -26,6 +26,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 1000);
 
             refreshIntervalId = setInterval(() => {
+                try {
+                    // Persist only across our own auto reloads
+                    sessionStorage.setItem('autoRefreshReload', '1');
+                    sessionStorage.setItem('autoRefreshInterval', String(intervalSeconds));
+                } catch {}
                 location.reload();
             }, intervalSeconds * 1000);
         }
@@ -46,8 +51,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // Start with the default selected interval
-    const initialInterval = parseInt(refreshSelect.value, 10);
+    // Initialize behavior: persist across auto reloads only
+    let initialInterval = 0;
+    try {
+        const fromAuto = sessionStorage.getItem('autoRefreshReload') === '1';
+        if (fromAuto) {
+            const saved = parseInt(sessionStorage.getItem('autoRefreshInterval') || '0', 10);
+            if (saved > 0) {
+                initialInterval = saved;
+                refreshSelect.value = String(saved);
+            }
+            // Clear the flag so manual refresh resets to default next time
+            sessionStorage.removeItem('autoRefreshReload');
+        } else {
+            // Manual refresh: clear any saved value and default to Off
+            sessionStorage.removeItem('autoRefreshInterval');
+            refreshSelect.value = '0';
+        }
+    } catch {}
+
     if (initialInterval > 0) {
         startRefresh(initialInterval);
     }
