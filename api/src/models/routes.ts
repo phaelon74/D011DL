@@ -143,11 +143,12 @@ const modelRoutes = async (server: FastifyInstance) => {
             // Incomplete: mark not downloaded and create a failed download record so UI can Retry
             await pool.query("UPDATE models SET is_downloaded = false, updated_at = now() WHERE id = $1", [id]);
             const prevDl = await pool.query('SELECT selection_json FROM downloads WHERE model_id = $1 ORDER BY created_at DESC LIMIT 1', [id]);
-            const selectionJson = prevDl.rows.length > 0 ? prevDl.rows[0].selection_json : JSON.stringify([{ path: '.', type: 'dir' }]);
+            const selectionJsonVal: any = prevDl.rows.length > 0 ? prevDl.rows[0].selection_json : [{ path: '.', type: 'dir' }];
+            const selectionJsonText: string = typeof selectionJsonVal === 'string' ? selectionJsonVal : JSON.stringify(selectionJsonVal);
             await pool.query(
                 `INSERT INTO downloads (model_id, selection_json, status, bytes_downloaded, total_bytes, log, finished_at)
-                 VALUES ($1, $2, 'failed', $3, $4, $5, now())`,
-                [id, selectionJson, localTotalSize, officialTotalSize, `Rescan mismatch: local ${localCount} files / ${localTotalSize} bytes; expected ${officialCount} files / ${officialTotalSize} bytes.`]
+                 VALUES ($1, $2::jsonb, 'failed', $3, $4, $5, now())`,
+                [id, selectionJsonText, localTotalSize, officialTotalSize, `Rescan mismatch: local ${localCount} files / ${localTotalSize} bytes; expected ${officialCount} files / ${officialTotalSize} bytes.`]
             );
             return reply.code(409).send({ message: 'Rescan incomplete: local files differ from Hugging Face.' });
 

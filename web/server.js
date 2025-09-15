@@ -152,7 +152,7 @@ app.post('/models/:id/rescan', checkAuth, async (req, res) => {
         res.redirect('/');
     } catch (error) {
         console.error('Error rescanning model:', error.response ? error.response.data : error.message);
-        res.redirect('/dashboard?error=rescan_failed');
+        res.redirect('/?error=rescan_failed');
     }
 });
 
