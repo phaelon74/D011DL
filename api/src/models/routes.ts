@@ -108,8 +108,16 @@ const modelRoutes = async (server: FastifyInstance) => {
                 scanPath = existingLocations.length > 0 ? existingLocations[0] : null;
             }
             if (!scanPath) {
-                // Nothing on disk; mark as not downloaded
+                // Nothing on disk; mark as not downloaded and create a failed download job so Retry appears in UI
                 await pool.query("UPDATE models SET is_downloaded = false, updated_at = now(), locations = ARRAY[]::text[] WHERE id = $1", [id]);
+                const prevDl = await pool.query('SELECT selection_json FROM downloads WHERE model_id = $1 ORDER BY created_at DESC LIMIT 1', [id]);
+                const selectionJsonVal: any = prevDl.rows.length > 0 ? prevDl.rows[0].selection_json : [{ path: '.', type: 'dir' }];
+                const selectionJsonText: string = typeof selectionJsonVal === 'string' ? selectionJsonVal : JSON.stringify(selectionJsonVal);
+                await pool.query(
+                    `INSERT INTO downloads (model_id, selection_json, status, bytes_downloaded, total_bytes, log, finished_at)
+                     VALUES ($1, $2::jsonb, 'failed', 0, 0, $3, now())`,
+                    [id, selectionJsonText, 'Rescan: no local files found at any recorded location.']
+                );
                 return reply.code(409).send({ message: 'Local files not found at any recorded location.' });
             }
 
