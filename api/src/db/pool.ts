@@ -7,6 +7,9 @@ const pool = new Pool({
   user: process.env.PGUSER,
   password: process.env.PGPASSWORD,
   ssl: process.env.PGSSLMODE === 'require',
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+  keepAlive: true,
 });
 
 pool.on('connect', () => {
@@ -14,8 +17,8 @@ pool.on('connect', () => {
 });
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
-  process.exit(-1);
+  // Log and allow pool to recover. The pool will create new connections as needed.
+  console.error('Unexpected error on idle Postgres client (will recover):', err.message);
 });
 
 export default pool;

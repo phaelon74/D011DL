@@ -10,8 +10,13 @@ const dbRoutes = async (server: FastifyInstance) => {
     
     // DB routes
     server.get('/db/models', async (request, reply) => {
-        const models = await getModels();
-        reply.send(models);
+        try {
+            const models = await getModels();
+            reply.send(models);
+        } catch (error: any) {
+            request.log.error(error, 'Failed to load models');
+            reply.code(503).send({ message: 'Service temporarily unavailable' });
+        }
     });
 
     const modelFilesParamsSchema = z.object({ id: z.string().uuid() });

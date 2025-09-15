@@ -54,7 +54,11 @@ app.get('/', checkAuth, async (req, res) => {
         });
         res.render('dashboard', { title: 'Dashboard', models: modelsResponse.data });
     } catch (error) {
-        res.redirect('/login'); // If token is invalid
+        if (error.response && error.response.status === 401) {
+            return res.redirect('/login');
+        }
+        // Render with empty list and a transient message instead of hanging the page
+        return res.render('dashboard', { title: 'Dashboard', models: [], error: 'API temporarily unavailable. Retrying shortly.' });
     }
 });
 
