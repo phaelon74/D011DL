@@ -6,8 +6,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let countdownIntervalId = null;
     let secondsLeft = 0;
 
-    const refreshSelect = document.getElementById('refresh-interval');
-    const refreshTimerSpan = document.getElementById('refresh-timer');
+    // Support current IDs used in dashboard.ejs (camelCase)
+    const refreshSelect = document.getElementById('refreshInterval') || document.getElementById('refresh-interval');
+    const refreshTimerSpan = document.getElementById('refreshTimer') || document.getElementById('refresh-timer');
+
+    if (!refreshSelect || !refreshTimerSpan) {
+        return; // Page without refresh controls
+    }
 
     function startRefresh(intervalSeconds) {
         stopRefresh();
@@ -16,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
             refreshTimerSpan.textContent = `(refreshing in ${secondsLeft}s)`;
             
             countdownIntervalId = setInterval(() => {
-                secondsLeft--;
+                secondsLeft = Math.max(0, secondsLeft - 1);
                 refreshTimerSpan.textContent = `(refreshing in ${secondsLeft}s)`;
             }, 1000);
 
