@@ -129,34 +129,6 @@ app.post('/copy-model/:id', checkAuth, async (req, res) => {
     }
 });
 
-// Retry from a model row (create a new full-repo download job)
-app.post('/retry-model/:id', checkAuth, async (req, res) => {
-    try {
-        const { id } = req.params;
-        // Load model details to construct payload
-        const modelsResponse = await axios.get(`${API_BASE_URL}/db/models`, {
-            headers: { Authorization: `Bearer ${res.locals.token}` }
-        });
-        const model = modelsResponse.data.find((m) => m.id === id);
-        if (!model) return res.redirect('/');
-
-        const payload = {
-            author: model.author,
-            repo: model.repo,
-            revision: model.revision || 'main',
-            selection: [{ path: '.', type: 'dir' }]
-        };
-
-        await axios.post(`${API_BASE_URL}/downloads`, payload, {
-            headers: { Authorization: `Bearer ${res.locals.token}` }
-        });
-        res.redirect('/');
-    } catch (error) {
-        console.error('Failed to retry model download', error);
-        res.redirect('/');
-    }
-});
-
 app.post('/move-model/:id', checkAuth, async (req, res) => {
     try {
         const { id } = req.params;
@@ -180,7 +152,7 @@ app.post('/models/:id/rescan', checkAuth, async (req, res) => {
         res.redirect('/');
     } catch (error) {
         console.error('Error rescanning model:', error.response ? error.response.data : error.message);
-        res.redirect('/?error=rescan_failed');
+        res.redirect('/dashboard?error=rescan_failed');
     }
 });
 
@@ -222,25 +194,6 @@ app.post('/delete-model/:id', checkAuth, async (req, res) => {
     }
 });
 
-// Immediate DB-only delete when the model has no on-disk locations
-app.post('/delete-model-immediate/:id', checkAuth, async (req, res) => {
-    try {
-        const { id } = req.params;
-        await axios.post(`${API_BASE_URL}/models/${id}/delete`, { locationsToDelete: [] }, {
-             headers: { Authorization: `Bearer ${res.locals.token}` }
-        });
-        // API route expects locations; when empty, just delete DB record directly
-        // Provide a specialized endpoint server-side if desired; for now, we fallback to full delete page if API rejects
-        res.redirect('/');
-    } catch (error) {
-        try {
-            // Fallback: call a dedicated API to purge model if implemented later
-            res.redirect('/');
-        } catch (e) {
-            res.redirect('/');
-        }
-    }
-});
 // Placeholder for other routes
 app.get('/models/:id', checkAuth, (req, res) => { res.send('Model details coming soon'); });
 app.get('/downloads', checkAuth, (req, res) => { res.send('Downloads page coming soon'); });
