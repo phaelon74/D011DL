@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 
 export async function checkExists(filePath: string): Promise<boolean> {
     try {
@@ -37,6 +37,21 @@ export async function getDirectorySize(dirPath: string): Promise<number> {
     return files.reduce((acc, file) => acc + file.size, 0);
 }
 
+async function getDirectorySizeFast(dirPath: string): Promise<number> {
+    return new Promise((resolve) => {
+        const cmd = `du -sb "${dirPath}" | cut -f1`;
+        exec(cmd, (err, stdout) => {
+            if (err) {
+                // Fallback to Node-based walk on failure
+                getDirectorySize(dirPath).then(resolve).catch(() => resolve(0));
+                return;
+            }
+            const n = parseInt(stdout.trim(), 10);
+            resolve(Number.isFinite(n) ? n : 0);
+        });
+    });
+}
+
 
 export async function copyDirectory(source: string, destination: string, onProgress?: (bytesCopied: number) => void | Promise<void>): Promise<void> {
     console.log(`[COPY] Starting verbose shell copy from ${source} to ${destination}`);
@@ -54,43 +69,44 @@ export async function copyDirectory(source: string, destination: string, onProgr
             }
 
             console.log(`[COPY] Successfully created parent directory.`);
-            const command = `cp -rv "${source}/." "${destination}/"`;
-            console.log(`[COPY] Executing command: ${command}`);
-            
-            // Periodically report destination size if a progress callback is provided
+            const cpArgs = ['-rv', `${source}/.`, `${destination}/`];
+            console.log(`[COPY] Executing command: cp ${cpArgs.join(' ')}`);
+
+            // Periodically report destination size if a progress callback is provided (cheaper via du -sb every 5s)
             let progressTimer: NodeJS.Timeout | null = null;
             if (onProgress) {
                 progressTimer = setInterval(async () => {
                     try {
-                        const bytesCopied = await getDirectorySize(destination);
+                        const bytesCopied = await getDirectorySizeFast(destination);
                         await onProgress(bytesCopied);
-                    } catch (e) {
-                        // ignore transient errors while files are in flux
+                    } catch {
+                        // ignore
                     }
-                }, 2000);
+                }, 5000);
             }
 
-            exec(command, async (error, stdout, stderr) => {
-                console.log(`[COPY] STDOUT: ${stdout}`);
-                console.error(`[COPY] STDERR: ${stderr}`);
-                if (progressTimer) {
-                    clearInterval(progressTimer);
-                    progressTimer = null;
-                }
-                // Final progress update
+            const child = spawn('cp', cpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+            let stdoutBuf = '';
+            let stderrBuf = '';
+            child.stdout.on('data', (chunk) => { stdoutBuf += chunk.toString(); });
+            child.stderr.on('data', (chunk) => { stderrBuf += chunk.toString(); });
+            child.on('close', async (code) => {
+                console.log(`[COPY] STDOUT: ${stdoutBuf}`);
+                if (stderrBuf) console.error(`[COPY] STDERR: ${stderrBuf}`);
+                if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
                 if (onProgress) {
                     try {
-                        const finalSize = await getDirectorySize(destination);
+                        const finalSize = await getDirectorySizeFast(destination);
                         await onProgress(finalSize);
-                    } catch (e) {}
+                    } catch {}
                 }
-
-                if (error) {
-                    console.error(`[COPY] FAILED with error:`, error);
-                    reject(error);
-                } else {
+                if (code === 0) {
                     console.log(`[COPY] Shell command finished successfully.`);
                     resolve();
+                } else {
+                    const err = new Error(`cp exited with code ${code}`);
+                    console.error(`[COPY] FAILED with error:`, err);
+                    reject(err);
                 }
             });
         });
