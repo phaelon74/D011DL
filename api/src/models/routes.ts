@@ -93,22 +93,23 @@ const modelRoutes = async (server: FastifyInstance) => {
             const model = modelRes.rows[0];
             const { author, repo, revision } = model;
 
-            // Determine which local path to scan: prefer root_path if it exists; otherwise, first existing location
-            let scanPath: string | null = model.root_path || null;
-            if (!scanPath || !(await checkExists(scanPath))) {
-                const existing = (model.locations || []).find(async (loc: string) => await checkExists(loc));
-                // Note: cannot use async inside find directly; fall back to sequential check
-                if (!existing) {
-                    for (const loc of (model.locations || [])) {
-                        if (await checkExists(loc)) { scanPath = loc; break; }
-                    }
-                } else {
-                    scanPath = model.locations[0];
+            // Compute which recorded locations actually exist on disk now
+            const recordedLocations: string[] = Array.isArray(model.locations) ? model.locations : [];
+            const existingLocations: string[] = [];
+            for (const loc of recordedLocations) {
+                if (await checkExists(loc)) {
+                    existingLocations.push(loc);
                 }
+            }
+
+            // Determine which local path to scan: prefer root_path if it exists; otherwise, first existing location
+            let scanPath: string | null = model.root_path && (await checkExists(model.root_path)) ? model.root_path : null;
+            if (!scanPath) {
+                scanPath = existingLocations.length > 0 ? existingLocations[0] : null;
             }
             if (!scanPath) {
                 // Nothing on disk; mark as not downloaded
-                await pool.query("UPDATE models SET is_downloaded = false, updated_at = now() WHERE id = $1", [id]);
+                await pool.query("UPDATE models SET is_downloaded = false, updated_at = now(), locations = ARRAY[]::text[] WHERE id = $1", [id]);
                 return reply.code(409).send({ message: 'Local files not found at any recorded location.' });
             }
 
@@ -129,7 +130,9 @@ const modelRoutes = async (server: FastifyInstance) => {
 
             if (isMatch) {
                 // Mark success and align root_path to the current scan path
-                await pool.query("UPDATE models SET is_downloaded = true, updated_at = now(), root_path = $1 WHERE id = $2", [scanPath, id]);
+                // Refresh existing locations list (may have changed during scan), ensure scanPath is included
+                const newLocations = Array.from(new Set([scanPath, ...existingLocations]));
+                await pool.query("UPDATE models SET is_downloaded = true, updated_at = now(), root_path = $1, locations = $2 WHERE id = $3", [scanPath, newLocations, id]);
 
                 // If there is a latest download job, mark it succeeded (optional best-effort)
                 const latestDownloadRes = await pool.query('SELECT id FROM downloads WHERE model_id = $1 ORDER BY created_at DESC LIMIT 1', [id]);
@@ -140,8 +143,8 @@ const modelRoutes = async (server: FastifyInstance) => {
                 return reply.send({ message: 'Rescan complete. Model matches Hugging Face metadata.' });
             }
 
-            // Incomplete: mark not downloaded and create a failed download record so UI can Retry
-            await pool.query("UPDATE models SET is_downloaded = false, updated_at = now() WHERE id = $1", [id]);
+            // Incomplete: mark not downloaded, prune non-existent locations, and create a failed download record so UI can Retry
+            await pool.query("UPDATE models SET is_downloaded = false, updated_at = now(), locations = $2 WHERE id = $1", [id, existingLocations]);
             const prevDl = await pool.query('SELECT selection_json FROM downloads WHERE model_id = $1 ORDER BY created_at DESC LIMIT 1', [id]);
             const selectionJsonVal: any = prevDl.rows.length > 0 ? prevDl.rows[0].selection_json : [{ path: '.', type: 'dir' }];
             const selectionJsonText: string = typeof selectionJsonVal === 'string' ? selectionJsonVal : JSON.stringify(selectionJsonVal);
