@@ -72,7 +72,16 @@ export async function processDownloadJob(jobId: string) {
         
         // The location is already added when the job is created.
         // On success, we just need to mark the model as downloaded.
-        await pool.query("UPDATE models SET is_downloaded = true, updated_at = now() WHERE id = $1", [model_id]);
+        // Ensure root_path exists in locations (defensive when retry fixes an empty model)
+        const modelRow = await pool.query('SELECT root_path, locations FROM models WHERE id = $1', [model_id]);
+        if (modelRow.rows.length > 0) {
+            const { root_path, locations } = modelRow.rows[0];
+            const locs: string[] = Array.isArray(locations) ? locations : [];
+            const newLocs = locs.includes(root_path) ? locs : [...locs, root_path];
+            await pool.query("UPDATE models SET is_downloaded = true, updated_at = now(), locations = $2 WHERE id = $1", [model_id, newLocs]);
+        } else {
+            await pool.query("UPDATE models SET is_downloaded = true, updated_at = now() WHERE id = $1", [model_id]);
+        }
 
     } catch (error: any) {
         console.error(`Job ${jobId} failed`, error);

@@ -19,7 +19,15 @@ const downloadsRoutes = async (server: FastifyInstance) => {
             const modelRes = await pool.query(
                 `INSERT INTO models (author, repo, revision, root_path, locations)
                  VALUES ($1, $2, $3, $4, $5)
-                 ON CONFLICT (author, repo, revision) DO UPDATE SET updated_at = now()
+                 ON CONFLICT (author, repo, revision) DO UPDATE SET
+                   updated_at = now(),
+                   root_path = EXCLUDED.root_path,
+                   locations = (
+                     CASE WHEN NOT (EXCLUDED.root_path = ANY(COALESCE(models.locations, ARRAY[]::text[])))
+                          THEN array_append(COALESCE(models.locations, ARRAY[]::text[]), EXCLUDED.root_path)
+                          ELSE COALESCE(models.locations, ARRAY[]::text[])
+                     END
+                   )
                  RETURNING id`,
                 [author, repo, revision, rootPath, [rootPath]]
             );
