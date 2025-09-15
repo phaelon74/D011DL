@@ -42,15 +42,21 @@
                             <% const job_type = model.job_type; %>
                             <% const download_status = model.download_status; %>
 
-                            <% if ((job_status === 'running' || job_status === 'queued')) { %>
+                            <% if (job_status === 'running' || job_status === 'queued') { %>
                                 <div class="status-running">
                                     <strong>
-                                        <% if (job_type === 'download') { %> Downloading... <% } %>
-                                        <% if (job_type === 'copy') { %> Copying... <% } %>
-                                        <% if (job_type === 'move') { %> Moving... <% } %>
+                                        <% if (job_type === 'download') { %>
+                                            <%= job_status === 'queued' ? 'Queued (download)' : 'Downloading...' %>
+                                        <% } %>
+                                        <% if (job_type === 'copy') { %>
+                                            <%= job_status === 'queued' ? 'Queued (copy)' : 'Copying...' %>
+                                        <% } %>
+                                        <% if (job_type === 'move') { %>
+                                            <%= job_status === 'queued' ? 'Queued (move)' : 'Moving...' %>
+                                        <% } %>
                                     </strong>
                                 </div>
-                                <% if ((job_type === 'download' || job_type === 'copy' || job_type === 'move') && model.total_bytes > 0) { %>
+                                <% if (job_status === 'running' && (job_type === 'download' || job_type === 'copy' || job_type === 'move') && model.total_bytes > 0) { %>
                                     <progress value="<%= model.bytes_downloaded %>" max="<%= model.total_bytes %>"></progress>
                                     <div class="progress-text">
                                         <%= (model.bytes_downloaded / 1024 / 1024).toFixed(2) %> MB / 
