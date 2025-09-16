@@ -96,6 +96,7 @@ export async function processHfUploadJob(jobId: string) {
         if (process.env.HF_TOKEN && !process.env.HF_HOME) {
             hfEnv['HF_TOKEN'] = process.env.HF_TOKEN as string;
         }
+        const hfToken = process.env.HF_TOKEN || '';
 
         // Helper to update log progressively
         const appendLog = async (line: string) => {
@@ -138,8 +139,9 @@ export async function processHfUploadJob(jobId: string) {
             await fs.mkdir(localRoot, { recursive: true });
             await fs.writeFile(initFilePath, 'init\n');
             await appendLog(`[HF] Creating repo ${repoId} and branch ${revision} via init upload`);
-            // Use a relative target path name (no leading slash) as per hf CLI examples
-            const args = ['upload', repoId, initFilePath, `${initFileName}`, '--repo-type=model', '--revision', revision, '--commit-message', `Init ${revision} branch`];
+            // Match user's working example: destination path with leading slash
+            const args = ['upload', repoId, initFilePath, `/.init-${revision}`, '--repo-type=model', '--revision', revision, '--commit-message', `Init ${revision} branch`].concat(hfToken ? ['--token', hfToken] : []);
+            await appendLog(`[HF] Running: hf ${args.map(a => a === hfToken ? '***TOKEN***' : a).join(' ')}`);
             const initCode = await runCommandWithOutput('hf', args, undefined, async (line) => { await appendLog(line); }, async (line) => { await appendLog(line); }, hfEnv);
             if (initCode !== 0) {
                 await appendLog(`[HF] Init upload exited with code ${initCode}`);
@@ -183,7 +185,8 @@ export async function processHfUploadJob(jobId: string) {
 
         // 4) Upload large folder and parse progress lines
         await appendLog(`[HF] Starting upload-large-folder from ${localRoot}`);
-        const args = ['upload-large-folder', repoId, '--repo-type=model', localRoot, '--revision', revision];
+        const args = ['upload-large-folder', repoId, '--repo-type=model', localRoot, '--revision', revision].concat(hfToken ? ['--token', hfToken] : []);
+        await appendLog(`[HF] Running: hf ${args.map(a => a === hfToken ? '***TOKEN***' : a).join(' ')}`);
         let uploadedSoFar = 0;
         const progressRegex = /(\d+)%/; // hf prints percents; we will track last seen percent
         let lastProgressUpdate = 0;
