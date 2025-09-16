@@ -11,6 +11,10 @@
                 <label for="loc-<%= location %>"><%= location %></label>
             </div>
         <% }) %>
+        <div style="margin-top: 12px;">
+            <input type="checkbox" name="removeFromDb" value="1" id="remove-db">
+            <label for="remove-db">Remove from Database</label>
+        </div>
         <br>
         <button type="submit">Delete Selected</button>
         <a href="/">Cancel</a>

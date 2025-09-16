@@ -232,12 +232,13 @@ app.get('/delete-model/:id', checkAuth, async (req, res) => {
 app.post('/delete-model/:id', checkAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        let { locationsToDelete } = req.body;
+        let { locationsToDelete, removeFromDb } = req.body;
         if (typeof locationsToDelete === 'string') {
             locationsToDelete = [locationsToDelete];
         }
+        const payload = { locationsToDelete: locationsToDelete || [], removeFromDb: !!removeFromDb };
         
-        await axios.post(`${API_BASE_URL}/models/${id}/delete`, { locationsToDelete }, {
+        await axios.post(`${API_BASE_URL}/models/${id}/delete`, payload, {
              headers: { Authorization: `Bearer ${res.locals.token}` }
         });
         res.redirect('/');

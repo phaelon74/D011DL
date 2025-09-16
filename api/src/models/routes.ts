@@ -317,17 +317,18 @@ const modelRoutes = async (server: FastifyInstance) => {
 
     // Delete model
     const deleteBodySchema = z.object({
-        locationsToDelete: z.array(z.string()).optional().default([])
+        locationsToDelete: z.array(z.string()).optional().default([]),
+        removeFromDb: z.boolean().optional().default(false)
     });
     server.post('/models/:id/delete', { preHandler: [server.authenticate] }, async (request, reply) => {
         try {
             const { id: modelId } = request.params as { id: string };
-            const { locationsToDelete } = deleteBodySchema.parse(request.body);
+            const { locationsToDelete, removeFromDb } = deleteBodySchema.parse(request.body);
             const modelRes = await pool.query('SELECT locations FROM models WHERE id = $1', [modelId]);
             if (modelRes.rows.length === 0) return reply.code(404).send({ message: 'Model not found' });
             
-            // If locations list is empty, this is a DB-only delete request
-            if (locationsToDelete.length === 0) {
+            // If locations list is empty and removeFromDb is selected, this is a DB-only delete request
+            if (locationsToDelete.length === 0 && removeFromDb) {
                 await pool.query('DELETE FROM models WHERE id = $1', [modelId]);
                 return reply.send({ message: 'Model deleted from database' });
             }
@@ -340,8 +341,8 @@ const modelRoutes = async (server: FastifyInstance) => {
             const currentLocations = modelRes.rows[0].locations;
             const newLocations = currentLocations.filter((loc: string) => !locationsToDelete.includes(loc));
 
-            if (newLocations.length === 0) {
-                // If all locations are deleted, purge the model record entirely.
+            if (removeFromDb || newLocations.length === 0) {
+                // If requested DB removal or all locations are deleted, purge the model record entirely.
                 await pool.query('DELETE FROM models WHERE id = $1', [modelId]);
             } else {
                 // Otherwise, just update the locations array.
