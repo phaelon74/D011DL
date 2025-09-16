@@ -7,6 +7,7 @@ import { processFsJob } from '../jobs/fsWorker';
 import path from 'path';
 import got from 'got';
 import { STORAGE_ROOT, NET_STORAGE_ROOT } from '../config';
+import { promises as fs } from 'fs';
 
 const modelRoutes = async (server: FastifyInstance) => {
     server.addHook('onRequest', server.authenticate);
@@ -23,6 +24,95 @@ const modelRoutes = async (server: FastifyInstance) => {
         const netPath = sourcePath.replace('/media/models', '/media/netmodels');
         return { model, sourcePath, netPath };
     }
+
+    async function scanRootForModels(root: string) {
+        const results: { author: string; repo: string; revision: string; rootPath: string }[] = [];
+        try {
+            if (!await checkExists(root)) {
+                return results;
+            }
+            const authors = await fs.readdir(root, { withFileTypes: true });
+            for (const authorDir of authors) {
+                if (!authorDir.isDirectory()) continue;
+                const authorPath = path.join(root, authorDir.name);
+                const repos = await fs.readdir(authorPath, { withFileTypes: true });
+                for (const repoDir of repos) {
+                    if (!repoDir.isDirectory()) continue;
+                    const repoPath = path.join(authorPath, repoDir.name);
+                    const revisions = await fs.readdir(repoPath, { withFileTypes: true });
+                    for (const revDir of revisions) {
+                        if (!revDir.isDirectory()) continue;
+                        const revisionPath = path.join(repoPath, revDir.name);
+                        results.push({ author: authorDir.name, repo: repoDir.name, revision: revDir.name, rootPath: revisionPath });
+                    }
+                }
+            }
+        } catch (e) {
+            server.log.error(e, `Failed scanning root ${root}`);
+        }
+        return results;
+    }
+
+    async function upsertModelFromScan(author: string, repo: string, revision: string, rootPath: string) {
+        // Always attempt to check HF existence, but we don't fail the scan if missing
+        try {
+            await got.get(`https://huggingface.co/api/models/${author}/${repo}`, { timeout: { request: 5000 } });
+        } catch (err: any) {
+            // 404 or any error -> treat as local-only; nothing special to store
+        }
+
+        const res = await pool.query(
+            `INSERT INTO models (author, repo, revision, root_path, is_downloaded, locations)
+             VALUES ($1, $2, $3, $4, true, $5)
+             ON CONFLICT (author, repo, revision) DO UPDATE SET
+               updated_at = now(),
+               is_downloaded = true,
+               root_path = COALESCE(models.root_path, EXCLUDED.root_path),
+               locations = (
+                 CASE WHEN NOT (EXCLUDED.root_path = ANY(COALESCE(models.locations, ARRAY[]::text[])))
+                      THEN array_append(COALESCE(models.locations, ARRAY[]::text[]), EXCLUDED.root_path)
+                      ELSE COALESCE(models.locations, ARRAY[]::text[])
+                 END
+               )
+             RETURNING id`,
+            [author, repo, revision, rootPath, [rootPath]]
+        );
+        return res.rows[0]?.id as string | undefined;
+    }
+
+    // Scan local disk (STORAGE_ROOT)
+    server.post('/scan/local', async (request, reply) => {
+        try {
+            const found = await scanRootForModels(STORAGE_ROOT);
+            let created = 0; let processed = 0;
+            for (const item of found) {
+                processed += 1;
+                const id = await upsertModelFromScan(item.author, item.repo, item.revision, item.rootPath);
+                if (id) created += 1; // Count as upserted
+            }
+            return reply.send({ scanned: found.length, upserted: created });
+        } catch (error) {
+            server.log.error(error);
+            return reply.code(500).send({ message: 'Failed to scan local disk' });
+        }
+    });
+
+    // Scan network disk (NET_STORAGE_ROOT)
+    server.post('/scan/network', async (request, reply) => {
+        try {
+            const found = await scanRootForModels(NET_STORAGE_ROOT);
+            let created = 0; let processed = 0;
+            for (const item of found) {
+                processed += 1;
+                const id = await upsertModelFromScan(item.author, item.repo, item.revision, item.rootPath);
+                if (id) created += 1;
+            }
+            return reply.send({ scanned: found.length, upserted: created });
+        } catch (error) {
+            server.log.error(error);
+            return reply.code(500).send({ message: 'Failed to scan network disk' });
+        }
+    });
 
     // Copy model (between /media/models and /media/netmodels depending on current location)
     server.post('/models/:id/copy', { preHandler: [server.authenticate] }, async (request, reply) => {
@@ -83,7 +173,8 @@ const modelRoutes = async (server: FastifyInstance) => {
         }
     });
 
-    // Rescan model directory: verifies local presence and compares with HF expected files
+    // Rescan model directory: verifies local presence and compares with HF expected files.
+    // If the model is not found on Hugging Face (404), we treat the local copy as master.
     server.post('/models/:id/rescan', async (request, reply) => {
         try {
             const { id } = modelParamsSchema.parse(request.params);
@@ -121,20 +212,31 @@ const modelRoutes = async (server: FastifyInstance) => {
                 return reply.code(409).send({ message: 'Local files not found at any recorded location.' });
             }
 
-            // 1. Get official file list from Hugging Face
-            const treeUrl = `https://huggingface.co/api/models/${author}/${repo}/tree/${revision}`;
-            const hfFileList: { path: string; size: number; type: string }[] = await got(treeUrl, { responseType: 'json' }).json();
-            const officialFiles = hfFileList.filter(f => f.type === 'file');
-            const officialTotalSize = officialFiles.reduce((acc, file) => acc + file.size, 0);
-            const officialCount = officialFiles.length;
+            let hfMissing = false;
+            let officialTotalSize = 0;
+            let officialCount = 0;
+            try {
+                const treeUrl = `https://huggingface.co/api/models/${author}/${repo}/tree/${revision}`;
+                const hfFileList: { path: string; size: number; type: string }[] = await got(treeUrl, { responseType: 'json' }).json();
+                const officialFiles = hfFileList.filter(f => f.type === 'file');
+                officialTotalSize = officialFiles.reduce((acc, file) => acc + file.size, 0);
+                officialCount = officialFiles.length;
+            } catch (err: any) {
+                // 404 or any error: treat as local-only master
+                if (err?.response?.status === 404) {
+                    hfMissing = true;
+                } else {
+                    hfMissing = true;
+                }
+            }
 
             // 2. Get local file list
             const localFiles = await listDirectoryContents(scanPath);
             const localTotalSize = localFiles.reduce((acc, file) => acc + file.size, 0);
             const localCount = localFiles.length;
 
-            // 3. Compare and update database
-            const isMatch = officialTotalSize > 0 && localTotalSize === officialTotalSize && localCount === officialCount;
+            // 3. Compare and update database (if HF is missing, local becomes master)
+            const isMatch = hfMissing ? true : (officialTotalSize > 0 && localTotalSize === officialTotalSize && localCount === officialCount);
 
             if (isMatch) {
                 // Mark success and align root_path to the current scan path
@@ -146,9 +248,10 @@ const modelRoutes = async (server: FastifyInstance) => {
                 const latestDownloadRes = await pool.query('SELECT id FROM downloads WHERE model_id = $1 ORDER BY created_at DESC LIMIT 1', [id]);
                 if (latestDownloadRes.rows.length > 0) {
                     const downloadId = latestDownloadRes.rows[0].id;
-                    await pool.query("UPDATE downloads SET status = 'succeeded', finished_at = now(), progress_pct = 100, bytes_downloaded = $1, total_bytes = $1 WHERE id = $2", [officialTotalSize, downloadId]);
+                    const sizeToUse = hfMissing ? localTotalSize : officialTotalSize;
+                    await pool.query("UPDATE downloads SET status = 'succeeded', finished_at = now(), progress_pct = 100, bytes_downloaded = $1, total_bytes = $1 WHERE id = $2", [sizeToUse, downloadId]);
                 }
-                return reply.send({ message: 'Rescan complete. Model matches Hugging Face metadata.' });
+                return reply.send({ message: hfMissing ? 'Rescan complete. Hugging Face entry missing; using local copy as master.' : 'Rescan complete. Model matches Hugging Face metadata.' });
             }
 
             // Incomplete: mark not downloaded, prune non-existent locations, and create a failed download record so UI can Retry

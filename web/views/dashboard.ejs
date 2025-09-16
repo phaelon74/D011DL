@@ -13,6 +13,14 @@
     <div id="tree-container"></div>
 
     <h2>Tracked Models</h2>
+    <div style="margin: 10px 0; text-align: right;">
+        <form method="POST" action="/scan-local" style="display: inline;">
+            <button type="submit">Scan Local Disk</button>
+        </form>
+        <form method="POST" action="/scan-network" style="display: inline; margin-left: 8px;">
+            <button type="submit">Scan Network Disk</button>
+        </form>
+    </div>
     <table>
         <thead>
             <tr>
@@ -110,8 +118,8 @@
                                 </form>
                             <% } %>
 
-                            <% const hasPrimary = (model.locations || []).some(l => l.startsWith('/media/models'));
-                               const hasNet = (model.locations || []).some(l => l.startsWith('/media/netmodels'));
+                            <% const hasPrimary = (model.locations || []).some(l => l.startsWith(storageRoot || '/media/models'));
+                               const hasNet = (model.locations || []).some(l => l.startsWith(netStorageRoot || '/media/netmodels'));
                                const hasAnyLocation = hasPrimary || hasNet;
                             %>
                             <% if (hasAnyLocation || model.is_downloaded) { %>

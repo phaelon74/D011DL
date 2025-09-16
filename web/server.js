@@ -7,6 +7,8 @@ require('dotenv').config({ path: '../.env' });
 const app = express();
 const port = process.env.PORT_WEB || 32001;
 const API_BASE_URL = process.env.API_BASE_INTERNAL || 'http://api:32002';
+const STORAGE_ROOT = process.env.STORAGE_ROOT || '/media/models';
+const NET_STORAGE_ROOT = process.env.NET_STORAGE_ROOT || '/media/netmodels';
 
 app.set('view engine', 'ejs');
 app.set('views', './views');
@@ -52,13 +54,13 @@ app.get('/', checkAuth, async (req, res) => {
         const modelsResponse = await axios.get(`${API_BASE_URL}/db/models`, {
             headers: { Authorization: `Bearer ${res.locals.token}` }
         });
-        res.render('dashboard', { title: 'Dashboard', models: modelsResponse.data });
+        res.render('dashboard', { title: 'Dashboard', models: modelsResponse.data, storageRoot: STORAGE_ROOT, netStorageRoot: NET_STORAGE_ROOT });
     } catch (error) {
         if (error.response && error.response.status === 401) {
             return res.redirect('/login');
         }
         // Render with empty list and a transient message instead of hanging the page
-        return res.render('dashboard', { title: 'Dashboard', models: [], error: 'API temporarily unavailable. Retrying shortly.' });
+        return res.render('dashboard', { title: 'Dashboard', models: [], error: 'API temporarily unavailable. Retrying shortly.', storageRoot: STORAGE_ROOT, netStorageRoot: NET_STORAGE_ROOT });
     }
 });
 
@@ -182,6 +184,29 @@ app.post('/models/:id/rescan', checkAuth, async (req, res) => {
         console.error('Error rescanning model:', error.response ? error.response.data : error.message);
         res.redirect('/?error=rescan_failed');
     }
+});
+
+// Trigger scans
+app.post('/scan-local', checkAuth, async (req, res) => {
+    try {
+        await axios.post(`${API_BASE_URL}/scan/local`, {}, {
+            headers: { Authorization: `Bearer ${res.locals.token}` }
+        });
+    } catch (error) {
+        console.error('Failed to trigger local scan', error.response ? error.response.data : error.message);
+    }
+    res.redirect('/');
+});
+
+app.post('/scan-network', checkAuth, async (req, res) => {
+    try {
+        await axios.post(`${API_BASE_URL}/scan/network`, {}, {
+            headers: { Authorization: `Bearer ${res.locals.token}` }
+        });
+    } catch (error) {
+        console.error('Failed to trigger network scan', error.response ? error.response.data : error.message);
+    }
+    res.redirect('/');
 });
 
 app.get('/delete-model/:id', checkAuth, async (req, res) => {
