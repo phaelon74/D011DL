@@ -39,11 +39,20 @@ const modelRoutes = async (server: FastifyInstance) => {
                 for (const repoDir of repos) {
                     if (!repoDir.isDirectory()) continue;
                     const repoPath = path.join(authorPath, repoDir.name);
-                    const revisions = await fs.readdir(repoPath, { withFileTypes: true });
-                    for (const revDir of revisions) {
-                        if (!revDir.isDirectory()) continue;
-                        const revisionPath = path.join(repoPath, revDir.name);
-                        results.push({ author: authorDir.name, repo: repoDir.name, revision: revDir.name, rootPath: revisionPath });
+                    const entries = await fs.readdir(repoPath, { withFileTypes: true });
+                    const hasFilesAtRepoRoot = entries.some((e) => e.isFile());
+
+                    // If files live directly under the repo directory, assume revision = 'main'
+                    if (hasFilesAtRepoRoot) {
+                        results.push({ author: authorDir.name, repo: repoDir.name, revision: 'main', rootPath: repoPath });
+                    }
+
+                    // Also collect any explicit revision subdirectories
+                    for (const entry of entries) {
+                        if (!entry.isDirectory()) continue;
+                        const revisionName = entry.name;
+                        const revisionPath = path.join(repoPath, revisionName);
+                        results.push({ author: authorDir.name, repo: repoDir.name, revision: revisionName, rootPath: revisionPath });
                     }
                 }
             }
