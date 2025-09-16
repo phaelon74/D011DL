@@ -1,10 +1,12 @@
 import { FastifyInstance } from 'fastify';
-import { createDownloadBodySchema } from '../schemas';
+import { createDownloadBodySchema, createUploadBodySchema } from '../schemas';
 import pool from '../db/pool';
 import downloadQueue from './queue';
 import { processDownloadJob } from './worker';
 import { STORAGE_ROOT } from '../config';
 import path from 'path';
+import { processHfUploadJob } from './uploadWorker';
+import uploadQueue from './uploadQueue';
 
 const downloadsRoutes = async (server: FastifyInstance) => {
 
@@ -46,6 +48,40 @@ const downloadsRoutes = async (server: FastifyInstance) => {
 
         } catch (error: any) {
             console.error('Error creating download:', error);
+            reply.code(500).send({ message: 'Internal Server Error' });
+        }
+    });
+
+    // Trigger HF upload job for a model
+    server.post('/uploads/:id', { preHandler: [server.authenticate] }, async (request, reply) => {
+        try {
+            const { id: modelId } = request.params as { id: string };
+            const body = (request as any).body || {};
+            const parsed = createUploadBodySchema.safeParse(body);
+
+            const modelRes = await pool.query('SELECT * FROM models WHERE id = $1', [modelId]);
+            if (modelRes.rows.length === 0) {
+                return reply.code(404).send({ message: 'Model not found' });
+            }
+            const model = modelRes.rows[0];
+            if (model.author !== 'TheHouseOfTheDude') {
+                return reply.code(403).send({ message: 'Uploads are only enabled for author TheHouseOfTheDude' });
+            }
+
+            // Default to model.revision; clients may pass override via body later if needed
+            const revision = (parsed.success && parsed.data.revision) ? parsed.data.revision : (model.revision || 'main');
+
+            const jobRes = await pool.query(
+                'INSERT INTO hf_uploads (model_id, status, revision) VALUES ($1, $2, $3) RETURNING id',
+                [modelId, 'queued', revision]
+            );
+            const jobId = jobRes.rows[0].id;
+
+            uploadQueue.add(() => processHfUploadJob(jobId));
+
+            reply.code(202).send({ upload_id: jobId, status: 'queued' });
+        } catch (error: any) {
+            request.log.error(error);
             reply.code(500).send({ message: 'Internal Server Error' });
         }
     });

@@ -40,6 +40,19 @@ export async function getModels() {
                 finished_at
             FROM fs_jobs
             WHERE model_id = m.id
+            UNION ALL
+            SELECT
+                id as job_id,
+                'upload' as job_type,
+                status as job_status,
+                log as job_log,
+                bytes_uploaded as bytes_downloaded,
+                total_bytes,
+                created_at,
+                started_at,
+                finished_at
+            FROM hf_uploads
+            WHERE model_id = m.id
             ORDER BY created_at DESC
             LIMIT 1
         ) j ON true

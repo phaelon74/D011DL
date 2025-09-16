@@ -1,0 +1,180 @@
+import pool from '../db/pool';
+import { promises as fs } from 'fs';
+import path from 'path';
+import { spawn } from 'child_process';
+import { STORAGE_ROOT } from '../config';
+
+function runCommandWithOutput(cmd: string, args: string[], cwd?: string, onStdoutLine?: (line: string) => void, onStderrLine?: (line: string) => void): Promise<number> {
+    return new Promise((resolve, reject) => {
+        const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdoutBuf = '';
+        let stderrBuf = '';
+        child.stdout.on('data', (chunk) => {
+            stdoutBuf += chunk.toString();
+            let idx;
+            while ((idx = stdoutBuf.indexOf('\n')) >= 0) {
+                const line = stdoutBuf.slice(0, idx);
+                stdoutBuf = stdoutBuf.slice(idx + 1);
+                onStdoutLine && onStdoutLine(line);
+            }
+        });
+        child.stderr.on('data', (chunk) => {
+            stderrBuf += chunk.toString();
+            let idx;
+            while ((idx = stderrBuf.indexOf('\n')) >= 0) {
+                const line = stderrBuf.slice(0, idx);
+                stderrBuf = stderrBuf.slice(idx + 1);
+                onStderrLine && onStderrLine(line);
+            }
+        });
+        child.on('close', (code) => {
+            if (stdoutBuf && onStdoutLine) onStdoutLine(stdoutBuf);
+            if (stderrBuf && onStderrLine) onStderrLine(stderrBuf);
+            resolve(code ?? 0);
+        });
+        child.on('error', (err) => reject(err));
+    });
+}
+
+export async function processHfUploadJob(jobId: string) {
+    const jobRes = await pool.query('SELECT * FROM hf_uploads WHERE id = $1', [jobId]);
+    if (jobRes.rows.length === 0) {
+        console.error(`HF upload job ${jobId} not found`);
+        return;
+    }
+    const job = jobRes.rows[0];
+
+    const modelRes = await pool.query('SELECT * FROM models WHERE id = $1', [job.model_id]);
+    if (modelRes.rows.length === 0) {
+        await pool.query("UPDATE hf_uploads SET status = 'failed', log = $1 WHERE id = $2", ['Model not found', jobId]);
+        return;
+    }
+    const model = modelRes.rows[0];
+
+    const author: string = model.author;
+    const repo: string = model.repo;
+    const revision: string = job.revision || model.revision || 'main';
+    const localRoot: string = model.root_path || path.join(STORAGE_ROOT, author, repo, revision);
+
+    if (author !== 'TheHouseOfTheDude') {
+        await pool.query("UPDATE hf_uploads SET status = 'failed', log = $1 WHERE id = $2", ['Uploads only allowed for TheHouseOfTheDude', jobId]);
+        return;
+    }
+
+    try {
+        await pool.query('UPDATE hf_uploads SET status = $1, started_at = now() WHERE id = $2', ['running', jobId]);
+
+        // 1) Create .init file in local directory
+        const initFileName = `.init-${revision}`;
+        const initFilePath = path.join(localRoot, initFileName);
+        await fs.mkdir(localRoot, { recursive: true });
+        await fs.writeFile(initFilePath, 'init\n');
+
+        const repoId = `${author}/${repo}`;
+
+        // Helper to update log progressively
+        const appendLog = async (line: string) => {
+            await pool.query('UPDATE hf_uploads SET log = COALESCE(log, '') || $1 || E"\n" WHERE id = $2', [line, jobId]);
+        };
+
+        // 2) Create repo/branch by uploading init file
+        await appendLog(`[HF] Ensuring repo ${repoId} and branch ${revision} via init upload`);
+        {
+            const args = ['upload', repoId, initFilePath, `/${initFileName}`, '--repo-type=model', '--revision', revision, '--commit-message', `Init ${revision} branch`];
+            await runCommandWithOutput('hf', args, undefined, async (line) => {
+                await appendLog(line);
+            }, async (line) => {
+                await appendLog(line);
+            });
+        }
+
+        // 3) Compute total size for progress baseline
+        const recursiveList = async (dir: string): Promise<number> => {
+            let total = 0;
+            const entries = await fs.readdir(dir, { withFileTypes: true });
+            for (const ent of entries) {
+                const full = path.join(dir, ent.name);
+                if (ent.isDirectory()) {
+                    total += await recursiveList(full);
+                } else if (ent.isFile()) {
+                    const stat = await fs.stat(full);
+                    total += stat.size;
+                }
+            }
+            return total;
+        };
+        let totalBytes = 0;
+        try {
+            totalBytes = await recursiveList(localRoot);
+        } catch {
+            totalBytes = 0;
+        }
+        await pool.query('UPDATE hf_uploads SET total_bytes = $1 WHERE id = $2', [totalBytes, jobId]);
+
+        // 4) Upload large folder and parse progress lines
+        await appendLog(`[HF] Starting upload-large-folder from ${localRoot}`);
+        const args = ['upload-large-folder', repoId, '--repo-type=model', localRoot, '--revision', revision];
+        let uploadedSoFar = 0;
+        const progressRegex = /(\d+)%/; // hf prints percents; we will track last seen percent
+        await runCommandWithOutput('hf', args, undefined, async (line) => {
+            // stdout
+            await appendLog(line);
+            const m = line.match(progressRegex);
+            if (m) {
+                const pct = parseInt(m[1], 10);
+                if (!Number.isNaN(pct)) {
+                    await pool.query('UPDATE hf_uploads SET progress_pct = $1 WHERE id = $2', [pct, jobId]);
+                }
+            }
+        }, async (line) => {
+            // stderr: also log and try to parse byte counters like 'Uploaded X/Y'
+            await appendLog(line);
+            // Some versions print 'Uploaded <bytes> of <bytes>'
+            const bytesMatch = line.match(/Uploaded\s+(\d+(?:\.\d+)?)([KMG]?)\s+of\s+(\d+(?:\.\d+)?)([KMG]?)/i);
+            if (bytesMatch) {
+                const toBytes = (val: string, unit: string) => {
+                    const n = parseFloat(val);
+                    const mult = unit.toUpperCase() === 'G' ? 1024*1024*1024 : unit.toUpperCase() === 'M' ? 1024*1024 : unit.toUpperCase() === 'K' ? 1024 : 1;
+                    return Math.round(n * mult);
+                };
+                const cur = toBytes(bytesMatch[1], bytesMatch[2] || '');
+                const tot = toBytes(bytesMatch[3], bytesMatch[4] || '');
+                uploadedSoFar = cur;
+                await pool.query('UPDATE hf_uploads SET bytes_uploaded = $1, total_bytes = CASE WHEN $2 > 0 THEN $2 ELSE total_bytes END WHERE id = $3', [uploadedSoFar, tot, jobId]);
+                if (tot > 0) {
+                    const pct = Math.min(100, Math.max(0, Math.floor((uploadedSoFar / tot) * 100)));
+                    await pool.query('UPDATE hf_uploads SET progress_pct = $1 WHERE id = $2', [pct, jobId]);
+                }
+            }
+        });
+
+        // 5) Final validation: compare HF tree vs local
+        try {
+            await appendLog('[HF] Validating uploaded content');
+            // Use huggingface API to list tree
+            const res = await fetch(`https://huggingface.co/api/models/${author}/${repo}/tree/${encodeURIComponent(revision)}`);
+            const hfList: any[] = res.ok ? await res.json() : [];
+            const hfFiles = hfList.filter((f: any) => f.type === 'file');
+            const hfTotal = hfFiles.reduce((acc, f) => acc + (f.size || 0), 0);
+
+            // compute local total again
+            const localTotal = totalBytes || await recursiveList(localRoot);
+            const isMatch = hfTotal > 0 && localTotal === hfTotal;
+            if (!isMatch) {
+                await pool.query("UPDATE hf_uploads SET status = 'failed', finished_at = now(), log = COALESCE(log,'') || $1 WHERE id = $2", [`Validation mismatch: local ${localTotal} vs HF ${hfTotal}`, jobId]);
+                return;
+            }
+        } catch (e: any) {
+            await appendLog(`[HF] Validation error: ${e?.message || e}`);
+            await pool.query("UPDATE hf_uploads SET status = 'failed', finished_at = now() WHERE id = $1", [jobId]);
+            return;
+        }
+
+        await pool.query("UPDATE hf_uploads SET status = 'succeeded', finished_at = now(), progress_pct = 100 WHERE id = $1", [jobId]);
+    } catch (error: any) {
+        const message = error?.message || 'Unknown upload error';
+        await pool.query("UPDATE hf_uploads SET status = 'failed', finished_at = now(), log = COALESCE(log,'') || $1 WHERE id = $2", [message, jobId]);
+    }
+}
+
+

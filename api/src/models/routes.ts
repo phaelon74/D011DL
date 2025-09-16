@@ -63,11 +63,11 @@ const modelRoutes = async (server: FastifyInstance) => {
     }
 
     async function upsertModelFromScan(author: string, repo: string, revision: string, rootPath: string) {
-        // Always attempt to check HF existence, but we don't fail the scan if missing
+        // Try to detect HF repo presence; if absent and author is TheHouseOfTheDude, the UI will allow HFUP
         try {
             await got.get(`https://huggingface.co/api/models/${author}/${repo}`, { timeout: { request: 5000 } });
         } catch (err: any) {
-            // 404 or any error -> treat as local-only; nothing special to store
+            // ignore
         }
 
         const res = await pool.query(

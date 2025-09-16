@@ -69,6 +69,21 @@ CREATE TABLE downloads (
     finished_at TIMESTAMPTZ
 );
 
+-- Hugging Face upload jobs
+CREATE TABLE IF NOT EXISTS hf_uploads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL DEFAULT 'queued', -- queued, running, succeeded, failed
+    progress_pct INTEGER NOT NULL DEFAULT 0,
+    bytes_uploaded BIGINT NOT NULL DEFAULT 0,
+    total_bytes BIGINT NOT NULL DEFAULT 0,
+    log TEXT,
+    revision TEXT NOT NULL DEFAULT 'main',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ
+);
+
 -- Filesystem operation jobs (copy, move)
 CREATE TABLE fs_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

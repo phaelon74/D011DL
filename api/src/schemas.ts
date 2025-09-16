@@ -9,3 +9,7 @@ export const createDownloadBodySchema = z.object({
         type: z.enum(['file', 'dir'])
     })).optional()
 });
+
+export const createUploadBodySchema = z.object({
+    revision: z.string().optional(),
+});

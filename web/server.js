@@ -54,7 +54,20 @@ app.get('/', checkAuth, async (req, res) => {
         const modelsResponse = await axios.get(`${API_BASE_URL}/db/models`, {
             headers: { Authorization: `Bearer ${res.locals.token}` }
         });
-        res.render('dashboard', { title: 'Dashboard', models: modelsResponse.data, storageRoot: STORAGE_ROOT, netStorageRoot: NET_STORAGE_ROOT });
+        const models = modelsResponse.data || [];
+        // Enrich with HF presence for TheHouseOfTheDude
+        const enriched = await Promise.all(models.map(async (m) => {
+            if (m && m.author === 'TheHouseOfTheDude') {
+                try {
+                    await axios.get(`https://huggingface.co/api/models/${m.author}/${m.repo}/tree/${encodeURIComponent(m.revision || 'main')}`, { timeout: 4000 });
+                    return { ...m, hfMissing: false };
+                } catch (e) {
+                    return { ...m, hfMissing: true };
+                }
+            }
+            return { ...m, hfMissing: false };
+        }));
+        res.render('dashboard', { title: 'Dashboard', models: enriched, storageRoot: STORAGE_ROOT, netStorageRoot: NET_STORAGE_ROOT });
     } catch (error) {
         if (error.response && error.response.status === 401) {
             return res.redirect('/login');
@@ -155,6 +168,21 @@ app.post('/retry-model/:id', checkAuth, async (req, res) => {
         res.redirect('/');
     } catch (error) {
         console.error('Failed to retry model download', error);
+        res.redirect('/');
+    }
+});
+
+// Trigger HF upload for a model
+app.post('/hf-upload/:id', checkAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { revision } = req.body || {};
+        await axios.post(`${API_BASE_URL}/uploads/${id}`, { revision }, {
+            headers: { Authorization: `Bearer ${res.locals.token}` }
+        });
+        res.redirect('/');
+    } catch (error) {
+        console.error('Failed to start HF upload', error.response ? error.response.data : error.message);
         res.redirect('/');
     }
 });
