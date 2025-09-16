@@ -99,6 +99,12 @@ export async function processHfUploadJob(jobId: string) {
         // 1) Detect if branch exists and has only init files; if missing, create with init file; if exists, skip init
         let branchExists = false;
         let branchEmpty = false;
+        let initRequiredFlagFromJob = false;
+        try {
+            const jobRow = await pool.query('SELECT log FROM hf_uploads WHERE id = $1', [jobId]);
+            const logText: string = jobRow.rows?.[0]?.log || '';
+            initRequiredFlagFromJob = /\[INIT\]\s*init_required=false/.test(logText) ? false : (/\[INIT\]\s*init_required=true/.test(logText) ? true : initRequiredFlagFromJob);
+        } catch {}
         try {
             const res = await fetch(`https://huggingface.co/api/models/${author}/${repo}/tree/${encodeURIComponent(revision)}`);
             if (res.ok) {
@@ -111,7 +117,7 @@ export async function processHfUploadJob(jobId: string) {
             }
         } catch {}
 
-        if (!branchExists) {
+        if (!branchExists && (initRequiredFlagFromJob || !initRequiredFlagFromJob)) {
             // Create .init and upload to create repo/branch
             const initFileName = `.init-${revision}`;
             const initFilePath = path.join(localRoot, initFileName);
