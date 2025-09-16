@@ -74,7 +74,7 @@ export async function processHfUploadJob(jobId: string) {
 
         // Helper to update log progressively
         const appendLog = async (line: string) => {
-            await pool.query('UPDATE hf_uploads SET log = COALESCE(log, '') || $1 || E"\n" WHERE id = $2', [line, jobId]);
+            await pool.query("UPDATE hf_uploads SET log = COALESCE(log, '') || $1 || E'\\n' WHERE id = $2", [line, jobId]);
         };
 
         // 2) Create repo/branch by uploading init file

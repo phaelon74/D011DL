@@ -62,9 +62,12 @@
                                         <% if (job_type === 'move') { %>
                                             <%= job_status === 'queued' ? 'Queued (move)' : 'Moving...' %>
                                         <% } %>
+                                        <% if (job_type === 'upload') { %>
+                                            <%= job_status === 'queued' ? 'Queued (upload)' : 'Uploading to HF...' %>
+                                        <% } %>
                                     </strong>
                                 </div>
-                                <% if (job_status === 'running' && (job_type === 'download' || job_type === 'copy' || job_type === 'move') && model.total_bytes > 0) { %>
+                                <% if (job_status === 'running' && (job_type === 'download' || job_type === 'copy' || job_type === 'move' || job_type === 'upload') && model.total_bytes > 0) { %>
                                     <progress value="<%= model.bytes_downloaded %>" max="<%= model.total_bytes %>"></progress>
                                     <div class="progress-text">
                                         <%= (model.bytes_downloaded / 1024 / 1024).toFixed(2) %> MB / 
