@@ -119,7 +119,11 @@ export async function processHfUploadJob(jobId: string) {
             await fs.writeFile(initFilePath, 'init\n');
             await appendLog(`[HF] Creating repo ${repoId} and branch ${revision} via init upload`);
             const args = ['upload', repoId, initFilePath, `/${initFileName}`, '--repo-type=model', '--revision', revision, '--commit-message', `Init ${revision} branch`];
-            await runCommandWithOutput('hf', args, undefined, async (line) => { await appendLog(line); }, async (line) => { await appendLog(line); });
+            const initCode = await runCommandWithOutput('hf', args, undefined, async (line) => { await appendLog(line); }, async (line) => { await appendLog(line); });
+            if (initCode !== 0) {
+                await appendLog(`[HF] Init upload exited with code ${initCode}`);
+                throw new Error(`hf upload init failed with code ${initCode}`);
+            }
         } else {
             if (branchEmpty) {
                 await appendLog(`[HF] Branch ${revision} exists and is effectively empty; skipping init`);
@@ -176,7 +180,7 @@ export async function processHfUploadJob(jobId: string) {
                 }
             } catch {}
         };
-        await runCommandWithOutput('hf', args, undefined, async (line) => {
+        const folderCode = await runCommandWithOutput('hf', args, undefined, async (line) => {
             // stdout
             await appendLog(line);
             const m = line.match(progressRegex);
@@ -207,6 +211,10 @@ export async function processHfUploadJob(jobId: string) {
                 }
             }
         });
+        if (folderCode !== 0) {
+            await appendLog(`[HF] upload-large-folder exited with code ${folderCode}`);
+            throw new Error(`hf upload-large-folder failed with code ${folderCode}`);
+        }
 
         // 5) Final validation: compare HF tree vs local
         try {
@@ -235,6 +243,8 @@ export async function processHfUploadJob(jobId: string) {
     } catch (error: any) {
         const message = error?.message || 'Unknown upload error';
         try { await pool.query("UPDATE hf_uploads SET status = 'failed', finished_at = now(), log = COALESCE(log,'') || $1 WHERE id = $2", [message, jobId]); } catch {}
+        // Surface failure in container logs
+        console.error(`[HF] Upload job ${jobId} failed: ${message}`);
     } finally {
         // Ensure any buffered logs are flushed
         try { await (async () => {})(); } catch {}
