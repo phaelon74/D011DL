@@ -89,8 +89,7 @@ const downloadsRoutes = async (server: FastifyInstance) => {
                 // 404 or network: treat as missing (init required)
             }
 
-            const initialLog = initRequired ? '[INIT] init_required=true' : '[INIT] init_required=false';
-            const jobRes = await pool.query('INSERT INTO hf_uploads (model_id, status, revision, log) VALUES ($1, $2, $3, $4) RETURNING id', [modelId, 'queued', revision, initialLog]);
+            const jobRes = await pool.query('INSERT INTO hf_uploads (model_id, status, revision, init_required, log) VALUES ($1, $2, $3, $4, $5) RETURNING id', [modelId, 'queued', revision, initRequired, initRequired ? '[INIT] init_required=true' : '[INIT] init_required=false']);
             const jobId = jobRes.rows[0].id;
 
             uploadQueue.add(() => processHfUploadJob(jobId));

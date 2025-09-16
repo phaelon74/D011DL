@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS hf_uploads (
     total_bytes BIGINT NOT NULL DEFAULT 0,
     log TEXT,
     revision TEXT NOT NULL DEFAULT 'main',
+    init_required BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ
@@ -86,6 +87,10 @@ CREATE TABLE IF NOT EXISTS hf_uploads (
 
 -- Ensure privileges for application role
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE hf_uploads TO "D011DLUSER";
+
+-- Backfill/migration for existing databases
+ALTER TABLE IF EXISTS hf_uploads
+    ADD COLUMN IF NOT EXISTS init_required BOOLEAN NOT NULL DEFAULT true;
 
 -- Filesystem operation jobs (copy, move)
 CREATE TABLE fs_jobs (

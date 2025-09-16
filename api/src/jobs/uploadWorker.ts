@@ -101,10 +101,10 @@ export async function processHfUploadJob(jobId: string) {
         let branchEmpty = false;
         let initOverride: boolean | null = null; // null = auto by branch existence
         try {
-            const jobRow = await pool.query('SELECT log FROM hf_uploads WHERE id = $1', [jobId]);
-            const logText: string = jobRow.rows?.[0]?.log || '';
-            if (/\[INIT\]\s*init_required=true/.test(logText)) initOverride = true;
-            if (/\[INIT\]\s*init_required=false/.test(logText)) initOverride = false;
+            const jobRow = await pool.query('SELECT init_required FROM hf_uploads WHERE id = $1', [jobId]);
+            if (jobRow.rows.length > 0 && typeof jobRow.rows[0].init_required === 'boolean') {
+                initOverride = jobRow.rows[0].init_required;
+            }
         } catch {}
         try {
             const res = await fetch(`https://huggingface.co/api/models/${author}/${repo}/tree/${encodeURIComponent(revision)}`);
