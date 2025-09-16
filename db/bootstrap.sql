@@ -84,6 +84,9 @@ CREATE TABLE IF NOT EXISTS hf_uploads (
     finished_at TIMESTAMPTZ
 );
 
+-- Ensure privileges for application role
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE hf_uploads TO "D011DLUSER";
+
 -- Filesystem operation jobs (copy, move)
 CREATE TABLE fs_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
