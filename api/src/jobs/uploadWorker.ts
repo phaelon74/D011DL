@@ -189,6 +189,7 @@ export async function processHfUploadJob(jobId: string) {
         await appendLog(`[HF] Running: hf ${args.map(a => a === hfToken ? '***TOKEN***' : a).join(' ')}`);
         let uploadedSoFar = 0;
         const progressRegex = /(\d+)%/; // hf prints percents; we will track last seen percent
+        const fracRegex = /(\d+(?:\.\d+)?)\s*([KMG])B?\s*\/\s*(\d+(?:\.\d+)?)\s*([KMG])B?/i; // e.g., 1.64GB / 4.56GB
         let lastProgressUpdate = 0;
         const PROGRESS_INTERVAL_MS = 2000;
         const updateProgress = async (fields: { pct?: number; bytes?: number; total?: number }) => {
@@ -214,6 +215,23 @@ export async function processHfUploadJob(jobId: string) {
                     await updateProgress({ pct });
                 }
             }
+            const fm = line.match(fracRegex);
+            if (fm) {
+                const toBytes = (val: string, unit: string) => {
+                    const n = parseFloat(val);
+                    const u = unit.toUpperCase();
+                    const mult = u === 'G' ? 1024*1024*1024 : u === 'M' ? 1024*1024 : u === 'K' ? 1024 : 1;
+                    return Math.round(n * mult);
+                };
+                const cur = toBytes(fm[1], fm[2]);
+                const tot = toBytes(fm[3], fm[4]);
+                uploadedSoFar = cur;
+                await updateProgress({ bytes: cur, total: tot });
+                if (tot > 0) {
+                    const pct = Math.min(100, Math.max(0, Math.floor((cur / tot) * 100)));
+                    await updateProgress({ pct });
+                }
+            }
         }, async (line) => {
             // stderr: also log and try to parse byte counters like 'Uploaded X/Y'
             await appendLog(line);
@@ -232,6 +250,24 @@ export async function processHfUploadJob(jobId: string) {
                 if (tot > 0) {
                     const pct = Math.min(100, Math.max(0, Math.floor((uploadedSoFar / tot) * 100)));
                     await updateProgress({ pct });
+                }
+            }
+            // Also handle 'XGB / YGB' style on stderr
+            const fm2 = line.match(fracRegex);
+            if (fm2) {
+                const toBytes2 = (val: string, unit: string) => {
+                    const n = parseFloat(val);
+                    const u = unit.toUpperCase();
+                    const mult = u === 'G' ? 1024*1024*1024 : u === 'M' ? 1024*1024 : u === 'K' ? 1024 : 1;
+                    return Math.round(n * mult);
+                };
+                const cur2 = toBytes2(fm2[1], fm2[2]);
+                const tot2 = toBytes2(fm2[3], fm2[4]);
+                uploadedSoFar = cur2;
+                await updateProgress({ bytes: cur2, total: tot2 });
+                if (tot2 > 0) {
+                    const pct2 = Math.min(100, Math.max(0, Math.floor((cur2 / tot2) * 100)));
+                    await updateProgress({ pct: pct2 });
                 }
             }
         }, hfEnv);
