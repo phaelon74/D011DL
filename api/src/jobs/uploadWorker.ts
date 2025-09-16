@@ -4,9 +4,15 @@ import path from 'path';
 import { spawn } from 'child_process';
 import { STORAGE_ROOT } from '../config';
 
-function runCommandWithOutput(cmd: string, args: string[], cwd?: string, onStdoutLine?: (line: string) => void, onStderrLine?: (line: string) => void): Promise<number> {
+function runCommandWithOutput(cmd: string, args: string[], cwd?: string, onStdoutLine?: (line: string) => void, onStderrLine?: (line: string) => void, extraEnv?: Record<string, string>): Promise<number> {
     return new Promise((resolve, reject) => {
-        const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+        const env = { ...process.env } as Record<string, string>;
+        if (extraEnv) {
+            for (const [k, v] of Object.entries(extraEnv)) {
+                if (typeof v === 'string' && v.length > 0) env[k] = v;
+            }
+        }
+        const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env });
         let stdoutBuf = '';
         let stderrBuf = '';
         child.stdout.on('data', (chunk) => {
@@ -85,6 +91,11 @@ export async function processHfUploadJob(jobId: string) {
         const logTimer = setInterval(() => { flushLogs(); }, LOG_FLUSH_INTERVAL_MS);
 
         const repoId = `${author}/${repo}`;
+        // Ensure hf uses the same token/setup as download env; prefer env var if present
+        const hfEnv: Record<string, string> = {};
+        if (process.env.HF_TOKEN && !process.env.HF_HOME) {
+            hfEnv['HF_TOKEN'] = process.env.HF_TOKEN as string;
+        }
 
         // Helper to update log progressively
         const appendLog = async (line: string) => {
@@ -127,8 +138,9 @@ export async function processHfUploadJob(jobId: string) {
             await fs.mkdir(localRoot, { recursive: true });
             await fs.writeFile(initFilePath, 'init\n');
             await appendLog(`[HF] Creating repo ${repoId} and branch ${revision} via init upload`);
-            const args = ['upload', repoId, initFilePath, `/${initFileName}`, '--repo-type=model', '--revision', revision, '--commit-message', `Init ${revision} branch`];
-            const initCode = await runCommandWithOutput('hf', args, undefined, async (line) => { await appendLog(line); }, async (line) => { await appendLog(line); });
+            // Use a relative target path name (no leading slash) as per hf CLI examples
+            const args = ['upload', repoId, initFilePath, `${initFileName}`, '--repo-type=model', '--revision', revision, '--commit-message', `Init ${revision} branch`];
+            const initCode = await runCommandWithOutput('hf', args, undefined, async (line) => { await appendLog(line); }, async (line) => { await appendLog(line); }, hfEnv);
             if (initCode !== 0) {
                 await appendLog(`[HF] Init upload exited with code ${initCode}`);
                 throw new Error(`hf upload init failed with code ${initCode}`);
@@ -219,7 +231,7 @@ export async function processHfUploadJob(jobId: string) {
                     await updateProgress({ pct });
                 }
             }
-        });
+        }, hfEnv);
         if (folderCode !== 0) {
             await appendLog(`[HF] upload-large-folder exited with code ${folderCode}`);
             throw new Error(`hf upload-large-folder failed with code ${folderCode}`);
