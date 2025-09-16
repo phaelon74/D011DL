@@ -135,9 +135,9 @@
                                     <button type="submit" formaction="/move-model/<%= model.id %>" <%= moveEnabled ? '' : 'disabled' %>>Move</button>
                                     <button type="button" onclick="window.location.href='/delete-model/<%= model.id %>'" <%= isJobActive ? 'disabled' : '' %>>Delete</button>
                                     <button type="submit" formaction="/models/<%= model.id %>/rescan" <%= isJobActive ? 'disabled' : '' %>>Rescan</button>
-                                    <% // HF Upload button: only when author is TheHouseOfTheDude and HF repo/branch missing
+                                    <% // HF Upload button: enabled for Dude models when HF branch is missing OR effectively empty (server computes canHfUp)
                                        const isDude = model.author === 'TheHouseOfTheDude';
-                                       const canHfUp = isDude && model.hfMissing === true;
+                                       const canHfUp = !!model.canHfUp && isDude;
                                     %>
                                     <button type="submit" formaction="/hf-upload/<%= model.id %>" <%= (isJobActive || !canHfUp) ? 'disabled' : '' %>>HFUP</button>
                                 </form>

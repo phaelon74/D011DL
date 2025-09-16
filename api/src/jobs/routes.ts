@@ -7,6 +7,7 @@ import { STORAGE_ROOT } from '../config';
 import path from 'path';
 import { processHfUploadJob } from './uploadWorker';
 import uploadQueue from './uploadQueue';
+import got from 'got';
 
 const downloadsRoutes = async (server: FastifyInstance) => {
 
@@ -71,10 +72,21 @@ const downloadsRoutes = async (server: FastifyInstance) => {
             // Default to model.revision; clients may pass override via body later if needed
             const revision = (parsed.success && parsed.data.revision) ? parsed.data.revision : (model.revision || 'main');
 
-            const jobRes = await pool.query(
-                'INSERT INTO hf_uploads (model_id, status, revision) VALUES ($1, $2, $3) RETURNING id',
-                [modelId, 'queued', revision]
-            );
+            // Enforce rule: if branch exists and contains non-init files, do NOT allow upload
+            try {
+                const treeUrl = `https://huggingface.co/api/models/${model.author}/${model.repo}/tree/${encodeURIComponent(revision)}`;
+                const list: any[] = await got(treeUrl, { responseType: 'json', timeout: { request: 5000 } }).json();
+                const files = Array.isArray(list) ? list.filter((f: any) => f && f.type === 'file') : [];
+                const ignored = new Set([`.gitattributes`, `.init-${revision}`]);
+                const nonInit = files.filter((f: any) => !ignored.has(f.path));
+                if (nonInit.length > 0) {
+                    return reply.code(409).send({ message: 'HF branch already contains files; upload is disabled.' });
+                }
+            } catch (e: any) {
+                // 404 or network: allow (branch/repo missing)
+            }
+
+            const jobRes = await pool.query('INSERT INTO hf_uploads (model_id, status, revision) VALUES ($1, $2, $3) RETURNING id', [modelId, 'queued', revision]);
             const jobId = jobRes.rows[0].id;
 
             uploadQueue.add(() => processHfUploadJob(jobId));

@@ -64,12 +64,6 @@ export async function processHfUploadJob(jobId: string) {
     try {
         await pool.query('UPDATE hf_uploads SET status = $1, started_at = now() WHERE id = $2', ['running', jobId]);
 
-        // 1) Create .init file in local directory
-        const initFileName = `.init-${revision}`;
-        const initFilePath = path.join(localRoot, initFileName);
-        await fs.mkdir(localRoot, { recursive: true });
-        await fs.writeFile(initFilePath, 'init\n');
-
         const repoId = `${author}/${repo}`;
 
         // Helper to update log progressively
@@ -77,15 +71,39 @@ export async function processHfUploadJob(jobId: string) {
             await pool.query("UPDATE hf_uploads SET log = COALESCE(log, '') || $1 || E'\\n' WHERE id = $2", [line, jobId]);
         };
 
-        // 2) Create repo/branch by uploading init file
-        await appendLog(`[HF] Ensuring repo ${repoId} and branch ${revision} via init upload`);
-        {
+        // 1) Detect if branch exists and has only init files; if missing, create with init file; if exists, skip init
+        let branchExists = false;
+        let branchEmpty = false;
+        try {
+            const res = await fetch(`https://huggingface.co/api/models/${author}/${repo}/tree/${encodeURIComponent(revision)}`);
+            if (res.ok) {
+                branchExists = true;
+                const list: any[] = await res.json();
+                const files = Array.isArray(list) ? list.filter((f: any) => f && f.type === 'file') : [];
+                const ignored = new Set([`.gitattributes`, `.init-${revision}`]);
+                const nonInit = files.filter((f: any) => !ignored.has(f.path));
+                branchEmpty = nonInit.length === 0;
+            }
+        } catch {}
+
+        if (!branchExists) {
+            // Create .init and upload to create repo/branch
+            const initFileName = `.init-${revision}`;
+            const initFilePath = path.join(localRoot, initFileName);
+            await fs.mkdir(localRoot, { recursive: true });
+            await fs.writeFile(initFilePath, 'init\n');
+            await appendLog(`[HF] Creating repo ${repoId} and branch ${revision} via init upload`);
             const args = ['upload', repoId, initFilePath, `/${initFileName}`, '--repo-type=model', '--revision', revision, '--commit-message', `Init ${revision} branch`];
-            await runCommandWithOutput('hf', args, undefined, async (line) => {
-                await appendLog(line);
-            }, async (line) => {
-                await appendLog(line);
-            });
+            await runCommandWithOutput('hf', args, undefined, async (line) => { await appendLog(line); }, async (line) => { await appendLog(line); });
+        } else {
+            if (branchEmpty) {
+                await appendLog(`[HF] Branch ${revision} exists and is effectively empty; skipping init`);
+            } else {
+                // Disallowed by route guard, but keep defensive check
+                await appendLog(`[HF] Branch ${revision} has existing files; upload is not permitted by policy.`);
+                await pool.query("UPDATE hf_uploads SET status = 'failed', finished_at = now(), log = COALESCE(log,'') || $1 WHERE id = $2", ['Branch has existing files; aborting.', jobId]);
+                return;
+            }
         }
 
         // 3) Compute total size for progress baseline

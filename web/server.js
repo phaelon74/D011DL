@@ -55,17 +55,22 @@ app.get('/', checkAuth, async (req, res) => {
             headers: { Authorization: `Bearer ${res.locals.token}` }
         });
         const models = modelsResponse.data || [];
-        // Enrich with HF presence for TheHouseOfTheDude
+        // Enrich with HF status for TheHouseOfTheDude; allow upload if branch is missing or empty (ignoring .gitattributes and .init-<rev>)
         const enriched = await Promise.all(models.map(async (m) => {
-            if (m && m.author === 'TheHouseOfTheDude') {
-                try {
-                    await axios.get(`https://huggingface.co/api/models/${m.author}/${m.repo}/tree/${encodeURIComponent(m.revision || 'main')}`, { timeout: 4000 });
-                    return { ...m, hfMissing: false };
-                } catch (e) {
-                    return { ...m, hfMissing: true };
-                }
+            if (!(m && m.author === 'TheHouseOfTheDude')) return { ...m, canHfUp: false };
+            const rev = encodeURIComponent(m.revision || 'main');
+            try {
+                const resp = await axios.get(`https://huggingface.co/api/models/${m.author}/${m.repo}/tree/${rev}`, { timeout: 5000 });
+                const list = Array.isArray(resp.data) ? resp.data : [];
+                const files = list.filter((f) => f && f.type === 'file');
+                const ignored = new Set([`.gitattributes`, `.init-${m.revision || 'main'}`]);
+                const nonInitFiles = files.filter((f) => !ignored.has(f.path));
+                const canHfUp = nonInitFiles.length === 0; // branch exists but empty (or only init)
+                return { ...m, canHfUp };
+            } catch (e) {
+                // 404 or network -> treat as missing: allow HFUP to create repo/branch
+                return { ...m, canHfUp: true };
             }
-            return { ...m, hfMissing: false };
         }));
         res.render('dashboard', { title: 'Dashboard', models: enriched, storageRoot: STORAGE_ROOT, netStorageRoot: NET_STORAGE_ROOT });
     } catch (error) {
