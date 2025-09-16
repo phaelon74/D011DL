@@ -64,11 +64,36 @@ export async function processHfUploadJob(jobId: string) {
     try {
         await pool.query('UPDATE hf_uploads SET status = $1, started_at = now() WHERE id = $2', ['running', jobId]);
 
+        // Throttle DB writes to avoid overwhelming the pool during long CLI output
+        let logBuffer: string[] = [];
+        let isFlushing = false;
+        const LOG_FLUSH_INTERVAL_MS = 2000;
+        const flushLogs = async () => {
+            if (isFlushing) return;
+            if (logBuffer.length === 0) return;
+            isFlushing = true;
+            const chunk = logBuffer.join('\n');
+            logBuffer = [];
+            try {
+                await pool.query("UPDATE hf_uploads SET log = COALESCE(log, '') || $1 || E'\\n' WHERE id = $2", [chunk, jobId]);
+            } catch (e) {
+                // Swallow errors to keep upload running; next flush may succeed
+            } finally {
+                isFlushing = false;
+            }
+        };
+        const logTimer = setInterval(() => { flushLogs(); }, LOG_FLUSH_INTERVAL_MS);
+
         const repoId = `${author}/${repo}`;
 
         // Helper to update log progressively
         const appendLog = async (line: string) => {
-            await pool.query("UPDATE hf_uploads SET log = COALESCE(log, '') || $1 || E'\\n' WHERE id = $2", [line, jobId]);
+            if (!line) return;
+            logBuffer.push(line);
+            // If buffer grows large, flush early
+            if (logBuffer.length >= 100) {
+                await flushLogs();
+            }
         };
 
         // 1) Detect if branch exists and has only init files; if missing, create with init file; if exists, skip init
@@ -127,13 +152,30 @@ export async function processHfUploadJob(jobId: string) {
         } catch {
             totalBytes = 0;
         }
-        await pool.query('UPDATE hf_uploads SET total_bytes = $1 WHERE id = $2', [totalBytes, jobId]);
+        try {
+            await pool.query('UPDATE hf_uploads SET total_bytes = $1 WHERE id = $2', [totalBytes, jobId]);
+        } catch {}
 
         // 4) Upload large folder and parse progress lines
         await appendLog(`[HF] Starting upload-large-folder from ${localRoot}`);
         const args = ['upload-large-folder', repoId, '--repo-type=model', localRoot, '--revision', revision];
         let uploadedSoFar = 0;
         const progressRegex = /(\d+)%/; // hf prints percents; we will track last seen percent
+        let lastProgressUpdate = 0;
+        const PROGRESS_INTERVAL_MS = 2000;
+        const updateProgress = async (fields: { pct?: number; bytes?: number; total?: number }) => {
+            const now = Date.now();
+            if (now - lastProgressUpdate < PROGRESS_INTERVAL_MS) return;
+            lastProgressUpdate = now;
+            try {
+                if (fields.pct !== undefined) {
+                    await pool.query('UPDATE hf_uploads SET progress_pct = $1 WHERE id = $2', [fields.pct, jobId]);
+                }
+                if (fields.bytes !== undefined || fields.total !== undefined) {
+                    await pool.query('UPDATE hf_uploads SET bytes_uploaded = COALESCE($1, bytes_uploaded), total_bytes = COALESCE($2, total_bytes) WHERE id = $3', [fields.bytes ?? null, fields.total ?? null, jobId]);
+                }
+            } catch {}
+        };
         await runCommandWithOutput('hf', args, undefined, async (line) => {
             // stdout
             await appendLog(line);
@@ -141,7 +183,7 @@ export async function processHfUploadJob(jobId: string) {
             if (m) {
                 const pct = parseInt(m[1], 10);
                 if (!Number.isNaN(pct)) {
-                    await pool.query('UPDATE hf_uploads SET progress_pct = $1 WHERE id = $2', [pct, jobId]);
+                    await updateProgress({ pct });
                 }
             }
         }, async (line) => {
@@ -158,10 +200,10 @@ export async function processHfUploadJob(jobId: string) {
                 const cur = toBytes(bytesMatch[1], bytesMatch[2] || '');
                 const tot = toBytes(bytesMatch[3], bytesMatch[4] || '');
                 uploadedSoFar = cur;
-                await pool.query('UPDATE hf_uploads SET bytes_uploaded = $1, total_bytes = CASE WHEN $2 > 0 THEN $2 ELSE total_bytes END WHERE id = $3', [uploadedSoFar, tot, jobId]);
+                await updateProgress({ bytes: uploadedSoFar, total: tot > 0 ? tot : undefined });
                 if (tot > 0) {
                     const pct = Math.min(100, Math.max(0, Math.floor((uploadedSoFar / tot) * 100)));
-                    await pool.query('UPDATE hf_uploads SET progress_pct = $1 WHERE id = $2', [pct, jobId]);
+                    await updateProgress({ pct });
                 }
             }
         });
@@ -188,10 +230,14 @@ export async function processHfUploadJob(jobId: string) {
             return;
         }
 
+        await flushLogs();
         await pool.query("UPDATE hf_uploads SET status = 'succeeded', finished_at = now(), progress_pct = 100 WHERE id = $1", [jobId]);
     } catch (error: any) {
         const message = error?.message || 'Unknown upload error';
-        await pool.query("UPDATE hf_uploads SET status = 'failed', finished_at = now(), log = COALESCE(log,'') || $1 WHERE id = $2", [message, jobId]);
+        try { await pool.query("UPDATE hf_uploads SET status = 'failed', finished_at = now(), log = COALESCE(log,'') || $1 WHERE id = $2", [message, jobId]); } catch {}
+    } finally {
+        // Ensure any buffered logs are flushed
+        try { await (async () => {})(); } catch {}
     }
 }
 
