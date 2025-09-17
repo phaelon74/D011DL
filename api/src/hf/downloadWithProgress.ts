@@ -25,36 +25,58 @@ export async function downloadFileWithProgress(
     } catch {}
 
     const partialPath = destinationPath + '.partial';
-    let startAt = 0;
-    try {
-        const pstat = await fsPromises.stat(partialPath);
-        startAt = pstat.size;
-    } catch {}
+    const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-    const headers: Record<string, string> = { 'accept-encoding': 'identity' };
-    if (startAt > 0) {
-        headers['range'] = `bytes=${startAt}-`;
-    }
+    let attempts = 0;
+    const maxAttempts = 8;
 
-    const downloadStream = got.stream(url, { headers, retry: { limit: 2 } });
-    const fileWriteStream = fs.createWriteStream(partialPath, { flags: startAt > 0 ? 'a' : 'w' });
-
-    downloadStream.on('downloadProgress', (progress) => {
-        const transferred = startAt + progress.transferred;
-        onProgress(transferred);
-    });
-
-    await pipeline(downloadStream, fileWriteStream);
-
-    // Validate final size if provided
-    if (typeof expectedSize === 'number' && expectedSize > 0) {
+    while (true) {
+        let startAt = 0;
         try {
-            const pst = await fsPromises.stat(partialPath);
-            if (pst.size !== expectedSize) {
-                // Leave partial for next retry; do not overwrite destination
+            const pstat = await fsPromises.stat(partialPath);
+            startAt = pstat.size;
+        } catch {}
+
+        if (typeof expectedSize === 'number' && expectedSize > 0 && startAt >= expectedSize) {
+            await fsPromises.rename(partialPath, destinationPath).catch(async () => {
+                // If already renamed, ignore
+                try { const st = await fsPromises.stat(destinationPath); if (st.size === startAt) return; } catch {}
+            });
+            return;
+        }
+
+        const headers: Record<string, string> = { 'accept-encoding': 'identity' };
+        if (startAt > 0) headers['range'] = `bytes=${startAt}-`;
+
+        try {
+            const downloadStream = got.stream(url, {
+                headers,
+                retry: { limit: 0 }, // we implement our own resume-aware retry
+                timeout: { request: 30000, response: 300000 },
+                throwHttpErrors: true,
+            });
+            const fileWriteStream = fs.createWriteStream(partialPath, { flags: startAt > 0 ? 'a' : 'w' });
+            downloadStream.on('downloadProgress', (progress) => {
+                const transferred = startAt + progress.transferred;
+                onProgress(transferred);
+            });
+            await pipeline(downloadStream, fileWriteStream);
+
+            // After a successful stream, re-check size
+            const pst = await fsPromises.stat(partialPath).catch(() => null as any);
+            if (pst && typeof expectedSize === 'number' && expectedSize > 0 && pst.size >= expectedSize) {
+                await fsPromises.rename(partialPath, destinationPath);
                 return;
             }
-        } catch {}
+            // If we don't have expectedSize or still short, loop to fetch remainder
+            attempts = 0; // reset attempts after forward progress
+        } catch (err) {
+            attempts += 1;
+            if (attempts >= maxAttempts) throw err;
+            // Exponential backoff up to 30s
+            const backoff = Math.min(30000, 1000 * Math.pow(2, attempts - 1));
+            await sleep(backoff);
+            // Continue loop; we'll resume from current partial size
+        }
     }
-    await fsPromises.rename(partialPath, destinationPath);
 }
