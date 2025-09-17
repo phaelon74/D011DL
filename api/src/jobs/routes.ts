@@ -38,8 +38,8 @@ const downloadsRoutes = async (server: FastifyInstance) => {
 
             // Create a new download job
             const jobRes = await pool.query(
-                'INSERT INTO downloads (model_id, selection_json, status) VALUES ($1, $2, $3) RETURNING id',
-                [modelId, JSON.stringify(selection), 'queued']
+                'INSERT INTO downloads (model_id, selection_json, status) VALUES ($1, $2::jsonb, $3) RETURNING id',
+                [modelId, JSON.stringify(selection || [{ path: '.', type: 'dir' }]), 'queued']
             );
             const jobId = jobRes.rows[0].id;
 
@@ -113,11 +113,22 @@ const downloadsRoutes = async (server: FastifyInstance) => {
             const oldJob = oldJobRes.rows[0];
 
             // 2. Create a new job record with the same details
+            let sel: any = oldJob.selection_json;
+            try {
+                if (typeof sel === 'string') {
+                    sel = JSON.parse(sel);
+                    if (typeof sel === 'string') sel = JSON.parse(sel);
+                }
+            } catch {
+                sel = [{ path: '.', type: 'dir' }];
+            }
+            if (!Array.isArray(sel)) sel = [{ path: '.', type: 'dir' }];
+
             const newJobRes = await pool.query(
                 `INSERT INTO downloads (model_id, selection_json, status)
-                 VALUES ($1, $2, 'queued')
+                 VALUES ($1, $2::jsonb, 'queued')
                  RETURNING id`,
-                [oldJob.model_id, oldJob.selection_json]
+                [oldJob.model_id, JSON.stringify(sel)]
             );
             const newJobId = newJobRes.rows[0].id;
 
