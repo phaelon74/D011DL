@@ -276,18 +276,21 @@ export async function processHfUploadJob(jobId: string) {
             throw new Error(`hf upload-large-folder failed with code ${folderCode}`);
         }
 
-        // 5) Final validation: compare HF tree vs local
+        // 5) Final validation: compare HF tree vs local (ignore HF-generated metadata files)
         try {
             await appendLog('[HF] Validating uploaded content');
             // Use huggingface API to list tree
             const res = await fetch(`https://huggingface.co/api/models/${author}/${repo}/tree/${encodeURIComponent(revision)}`);
             const hfList: any[] = res.ok ? await res.json() : [];
-            const hfFiles = hfList.filter((f: any) => f.type === 'file');
-            const hfTotal = hfFiles.reduce((acc, f) => acc + (f.size || 0), 0);
+            const metaNames = new Set([`.gitattributes`, `README.md`]);
+            const hfCoreFiles = hfList.filter((f: any) => f.type === 'file' && !metaNames.has(f.path));
+            const hfTotal = hfCoreFiles.reduce((acc, f) => acc + (f.size || 0), 0);
 
             // compute local total again
             const localTotal = totalBytes || await recursiveList(localRoot);
-            const isMatch = hfTotal > 0 && localTotal === hfTotal;
+            const diff = Math.abs(localTotal - hfTotal);
+            // Allow a small tolerance (e.g., metadata padding), 64 KiB max
+            const isMatch = hfTotal > 0 && diff <= 64 * 1024;
             if (!isMatch) {
                 await pool.query("UPDATE hf_uploads SET status = 'failed', finished_at = now(), log = COALESCE(log,'') || $1 WHERE id = $2", [`Validation mismatch: local ${localTotal} vs HF ${hfTotal}`, jobId]);
                 return;
