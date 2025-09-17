@@ -188,87 +188,68 @@ export async function processHfUploadJob(jobId: string) {
         const args = ['upload-large-folder', repoId, '--repo-type=model', localRoot, '--revision', revision].concat(hfToken ? ['--token', hfToken] : []);
         await appendLog(`[HF] Running: hf ${args.map(a => a === hfToken ? '***TOKEN***' : a).join(' ')}`);
         let uploadedSoFar = 0;
-        const progressRegex = /(\d+)%/; // hf prints percents; we will track last seen percent
+        const progressRegex = /(\d+)%/; // hf prints percents; may be per-file; do not trust for totals
+        const summaryPreRegex = /pre-uploaded:\s*\d+\/\d+\s*\((\d+(?:\.\d+)?)\s*([KMG])B?\/(\d+(?:\.\d+)?)\s*([KMG])B?\)/i;
+        const summaryCommitRegex = /committed:\s*\d+\/\d+\s*\((\d+(?:\.\d+)?)\s*([KMG])B?\/(\d+(?:\.\d+)?)\s*([KMG])B?\)/i;
         const fracRegex = /(\d+(?:\.\d+)?)\s*([KMG])B?\s*\/\s*(\d+(?:\.\d+)?)\s*([KMG])B?/i; // e.g., 1.64GB / 4.56GB
         let lastProgressUpdate = 0;
         const PROGRESS_INTERVAL_MS = 2000;
-        const updateProgress = async (fields: { pct?: number; bytes?: number; total?: number }) => {
+        const jobTotalBytes = totalBytes > 0 ? totalBytes : undefined;
+        const updateProgress = async (fields: { pct?: number; bytes?: number }) => {
             const now = Date.now();
             if (now - lastProgressUpdate < PROGRESS_INTERVAL_MS) return;
             lastProgressUpdate = now;
             try {
-                if (fields.pct !== undefined) {
-                    await pool.query('UPDATE hf_uploads SET progress_pct = $1 WHERE id = $2', [fields.pct, jobId]);
-                }
-                if (fields.bytes !== undefined || fields.total !== undefined) {
-                    await pool.query('UPDATE hf_uploads SET bytes_uploaded = COALESCE($1, bytes_uploaded), total_bytes = COALESCE($2, total_bytes) WHERE id = $3', [fields.bytes ?? null, fields.total ?? null, jobId]);
+                if (fields.bytes !== undefined) {
+                    const clamped = jobTotalBytes ? Math.min(fields.bytes, jobTotalBytes) : fields.bytes;
+                    await pool.query('UPDATE hf_uploads SET bytes_uploaded = $1 WHERE id = $2', [clamped, jobId]);
+                    if (jobTotalBytes) {
+                        const pct = Math.min(100, Math.max(0, Math.floor((clamped / jobTotalBytes) * 100)));
+                        await pool.query('UPDATE hf_uploads SET progress_pct = $1 WHERE id = $2', [pct, jobId]);
+                    }
+                } else if (fields.pct !== undefined && jobTotalBytes) {
+                    const estBytes = Math.floor((fields.pct / 100) * jobTotalBytes);
+                    await pool.query('UPDATE hf_uploads SET bytes_uploaded = $1, progress_pct = $2 WHERE id = $3', [estBytes, fields.pct, jobId]);
                 }
             } catch {}
         };
         const folderCode = await runCommandWithOutput('hf', args, undefined, async (line) => {
             // stdout
             await appendLog(line);
-            const m = line.match(progressRegex);
-            if (m) {
-                const pct = parseInt(m[1], 10);
-                if (!Number.isNaN(pct)) {
-                    await updateProgress({ pct });
-                }
-            }
-            const fm = line.match(fracRegex);
-            if (fm) {
+            // Prefer summary lines for overall progress
+            let m;
+            if ((m = line.match(summaryPreRegex)) || (m = line.match(summaryCommitRegex))) {
                 const toBytes = (val: string, unit: string) => {
                     const n = parseFloat(val);
                     const u = unit.toUpperCase();
                     const mult = u === 'G' ? 1024*1024*1024 : u === 'M' ? 1024*1024 : u === 'K' ? 1024 : 1;
                     return Math.round(n * mult);
                 };
-                const cur = toBytes(fm[1], fm[2]);
-                const tot = toBytes(fm[3], fm[4]);
-                uploadedSoFar = cur;
-                await updateProgress({ bytes: cur, total: tot });
-                if (tot > 0) {
-                    const pct = Math.min(100, Math.max(0, Math.floor((cur / tot) * 100)));
-                    await updateProgress({ pct });
+                const cur = toBytes(m[1], m[2]);
+                await updateProgress({ bytes: cur });
+            } else {
+                const pm = line.match(progressRegex);
+                if (pm) {
+                    const pct = parseInt(pm[1], 10);
+                    if (!Number.isNaN(pct)) {
+                        await updateProgress({ pct });
+                    }
                 }
             }
         }, async (line) => {
             // stderr: also log and try to parse byte counters like 'Uploaded X/Y'
             await appendLog(line);
-            // Some versions print 'Uploaded <bytes> of <bytes>'
-            const bytesMatch = line.match(/Uploaded\s+(\d+(?:\.\d+)?)([KMG]?)\s+of\s+(\d+(?:\.\d+)?)([KMG]?)/i);
-            if (bytesMatch) {
+            // Prefer summary lines for overall progress on stderr as well
+            let m2;
+            if ((m2 = line.match(summaryPreRegex)) || (m2 = line.match(summaryCommitRegex))) {
                 const toBytes = (val: string, unit: string) => {
-                    const n = parseFloat(val);
-                    const mult = unit.toUpperCase() === 'G' ? 1024*1024*1024 : unit.toUpperCase() === 'M' ? 1024*1024 : unit.toUpperCase() === 'K' ? 1024 : 1;
-                    return Math.round(n * mult);
-                };
-                const cur = toBytes(bytesMatch[1], bytesMatch[2] || '');
-                const tot = toBytes(bytesMatch[3], bytesMatch[4] || '');
-                uploadedSoFar = cur;
-                await updateProgress({ bytes: uploadedSoFar, total: tot > 0 ? tot : undefined });
-                if (tot > 0) {
-                    const pct = Math.min(100, Math.max(0, Math.floor((uploadedSoFar / tot) * 100)));
-                    await updateProgress({ pct });
-                }
-            }
-            // Also handle 'XGB / YGB' style on stderr
-            const fm2 = line.match(fracRegex);
-            if (fm2) {
-                const toBytes2 = (val: string, unit: string) => {
                     const n = parseFloat(val);
                     const u = unit.toUpperCase();
                     const mult = u === 'G' ? 1024*1024*1024 : u === 'M' ? 1024*1024 : u === 'K' ? 1024 : 1;
                     return Math.round(n * mult);
                 };
-                const cur2 = toBytes2(fm2[1], fm2[2]);
-                const tot2 = toBytes2(fm2[3], fm2[4]);
-                uploadedSoFar = cur2;
-                await updateProgress({ bytes: cur2, total: tot2 });
-                if (tot2 > 0) {
-                    const pct2 = Math.min(100, Math.max(0, Math.floor((cur2 / tot2) * 100)));
-                    await updateProgress({ pct: pct2 });
-                }
+                const cur = toBytes(m2[1], m2[2]);
+                await updateProgress({ bytes: cur });
             }
         }, hfEnv);
         if (folderCode !== 0) {
