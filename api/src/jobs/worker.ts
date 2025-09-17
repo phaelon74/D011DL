@@ -59,7 +59,7 @@ export async function processDownloadJob(jobId: string) {
         for (const file of filesToDownload) {
             const fileUrl = `https://huggingface.co/${author}/${repo}/resolve/${revision}/${file.path}`;
             const destinationPath = path.join(STORAGE_ROOT, author, repo, revision, file.path);
-            await downloadFileWithProgress(fileUrl, destinationPath, progressCallback);
+            await downloadFileWithProgress(fileUrl, destinationPath, progressCallback, file.size);
             
             cumulativeBytesDownloaded += file.size;
             await pool.query(
