@@ -1,0 +1,25 @@
+<%- include('partials/header') %>
+
+<div class="container">
+    <h1>Select Revisions to Download: <%= author %> / <%= repo %></h1>
+    <p>This repository has multiple revisions. Select one or more to download. Selected items will be queued like normal downloads.</p>
+
+    <form action="/queue-downloads" method="POST">
+        <input type="hidden" name="author" value="<%= author %>">
+        <input type="hidden" name="repo" value="<%= repo %>">
+        <div style="margin: 12px 0;">
+            <% revisions.forEach(function(rev) { %>
+                <div>
+                    <input type="checkbox" name="revisions" value="<%= rev %>" id="rev-<%= rev %>">
+                    <label for="rev-<%= rev %>"><%= rev %></label>
+                </div>
+            <% }) %>
+        </div>
+        <button type="submit">Queue Downloads</button>
+        <a href="/">Cancel</a>
+    </form>
+</div>
+
+<%- include('partials/footer') %>
+
+

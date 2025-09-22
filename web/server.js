@@ -85,18 +85,38 @@ app.get('/', checkAuth, async (req, res) => {
 app.post('/start-download', checkAuth, async (req, res) => {
     try {
         const { authorRepo } = req.body;
-        const [author, repo] = authorRepo.split('/');
+        const [author, repo] = (authorRepo || '').split('/');
 
         if (!author || !repo) {
-            // Handle error: invalid format
             return res.redirect('/');
         }
-        
+
+        // Check for revisions (branches/tags) on Hugging Face
+        try {
+            const refsResp = await axios.get(`https://huggingface.co/api/models/${author}/${repo}/refs`, { timeout: 7000 });
+            const branches = Array.isArray(refsResp.data?.branches) ? refsResp.data.branches : [];
+            const tags = Array.isArray(refsResp.data?.tags) ? refsResp.data.tags : [];
+            const revisionNames = [
+                ...branches.map((b) => b?.name).filter(Boolean),
+                ...tags.map((t) => t?.name).filter(Boolean)
+            ];
+
+            const uniqueRevisions = Array.from(new Set(revisionNames));
+            const onlyMain = uniqueRevisions.length === 0 || (uniqueRevisions.length === 1 && uniqueRevisions[0] === 'main');
+
+            if (!onlyMain) {
+                // Redirect to selection page similar to delete page UI
+                return res.redirect(`/select-revisions?author=${encodeURIComponent(author)}&repo=${encodeURIComponent(repo)}`);
+            }
+        } catch (e) {
+            // If refs endpoint fails, fall back to main
+        }
+
         const payload = {
             author,
             repo,
-            revision: 'main', // Default to main branch
-            selection: [{ path: '.', type: 'dir' }] // Indicates a full repo download
+            revision: 'main',
+            selection: [{ path: '.', type: 'dir' }]
         };
 
         await axios.post(`${API_BASE_URL}/downloads`, payload, {
@@ -105,8 +125,82 @@ app.post('/start-download', checkAuth, async (req, res) => {
 
         res.redirect('/');
     } catch (error) {
-        console.error("Failed to start download", error);
-        res.redirect('/'); // Redirect home even on error
+        console.error('Failed to start download', error);
+        res.redirect('/');
+    }
+});
+
+// Revision selection page (similar to delete page) when multiple revisions exist
+app.get('/select-revisions', checkAuth, async (req, res) => {
+    try {
+        const author = (req.query.author || '').toString();
+        const repo = (req.query.repo || '').toString();
+        if (!author || !repo) return res.redirect('/');
+
+        let branches = [];
+        let tags = [];
+        try {
+            const refsResp = await axios.get(`https://huggingface.co/api/models/${author}/${repo}/refs`, { timeout: 7000 });
+            branches = Array.isArray(refsResp.data?.branches) ? refsResp.data.branches : [];
+            tags = Array.isArray(refsResp.data?.tags) ? refsResp.data.tags : [];
+        } catch (e) {
+            // If we cannot load refs, fallback to immediate main download for UX
+            return res.redirect('/');
+        }
+
+        const revisionNames = [
+            ...branches.map((b) => b?.name).filter(Boolean),
+            ...tags.map((t) => t?.name).filter(Boolean)
+        ];
+        const uniqueRevisions = Array.from(new Set(revisionNames));
+
+        if (uniqueRevisions.length === 0 || (uniqueRevisions.length === 1 && uniqueRevisions[0] === 'main')) {
+            return res.redirect('/');
+        }
+
+        res.render('select-revisions', {
+            title: 'Select Revisions',
+            author,
+            repo,
+            revisions: uniqueRevisions
+        });
+    } catch (error) {
+        return res.redirect('/');
+    }
+});
+
+// Queue downloads for one or multiple selected revisions
+app.post('/queue-downloads', checkAuth, async (req, res) => {
+    try {
+        const { author, repo } = req.body;
+        let { revisions } = req.body;
+        if (!author || !repo) return res.redirect('/');
+
+        if (!revisions) {
+            return res.redirect('/');
+        }
+        if (typeof revisions === 'string') {
+            revisions = [revisions];
+        }
+        const selected = (Array.isArray(revisions) ? revisions : []).map((r) => String(r)).filter(Boolean);
+        if (selected.length === 0) return res.redirect('/');
+
+        // Queue a job per revision
+        await Promise.all(selected.map((rev) => {
+            const payload = {
+                author,
+                repo,
+                revision: rev,
+                selection: [{ path: '.', type: 'dir' }]
+            };
+            return axios.post(`${API_BASE_URL}/downloads`, payload, {
+                headers: { Authorization: `Bearer ${res.locals.token}` }
+            }).catch(() => {});
+        }));
+
+        res.redirect('/');
+    } catch (error) {
+        res.redirect('/');
     }
 });
 
