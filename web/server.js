@@ -72,13 +72,28 @@ app.get('/', checkAuth, async (req, res) => {
                 return { ...m, canHfUp: true };
             }
         }));
-        res.render('dashboard', { title: 'Dashboard', models: enriched, storageRoot: STORAGE_ROOT, netStorageRoot: NET_STORAGE_ROOT });
+        // Group by author+repo for single-row display with nested revisions
+        const groupsMap = new Map();
+        for (const m of enriched) {
+            const key = `${m.author}/${m.repo}`;
+            if (!groupsMap.has(key)) {
+                groupsMap.set(key, { author: m.author, repo: m.repo, revisions: [] });
+            }
+            groupsMap.get(key).revisions.push(m);
+        }
+        const groups = Array.from(groupsMap.values()).map(g => {
+            // Sort revisions by name for consistent display
+            g.revisions.sort((a, b) => String(a.revision || 'main').localeCompare(String(b.revision || 'main')));
+            return g;
+        });
+
+        res.render('dashboard', { title: 'Dashboard', models: enriched, groups, storageRoot: STORAGE_ROOT, netStorageRoot: NET_STORAGE_ROOT });
     } catch (error) {
         if (error.response && error.response.status === 401) {
             return res.redirect('/login');
         }
         // Render with empty list and a transient message instead of hanging the page
-        return res.render('dashboard', { title: 'Dashboard', models: [], error: 'API temporarily unavailable. Retrying shortly.', storageRoot: STORAGE_ROOT, netStorageRoot: NET_STORAGE_ROOT });
+        return res.render('dashboard', { title: 'Dashboard', models: [], groups: [], error: 'API temporarily unavailable. Retrying shortly.', storageRoot: STORAGE_ROOT, netStorageRoot: NET_STORAGE_ROOT });
     }
 });
 
@@ -233,7 +248,8 @@ app.post('/rescan-model/:id', checkAuth, async (req, res) => {
 app.post('/copy-model/:id', checkAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        await axios.post(`${API_BASE_URL}/models/${id}/copy`, {}, {
+        const { sourcePath, destinationRoot } = req.body || {};
+        await axios.post(`${API_BASE_URL}/models/${id}/copy`, { sourcePath, destinationRoot }, {
              headers: { Authorization: `Bearer ${res.locals.token}` }
         });
         res.redirect('/');
@@ -289,7 +305,8 @@ app.post('/hf-upload/:id', checkAuth, async (req, res) => {
 app.post('/move-model/:id', checkAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        await axios.post(`${API_BASE_URL}/models/${id}/move`, {}, {
+        const { sourcePath, destinationRoot } = req.body || {};
+        await axios.post(`${API_BASE_URL}/models/${id}/move`, { sourcePath, destinationRoot }, {
              headers: { Authorization: `Bearer ${res.locals.token}` }
         });
         res.redirect('/');

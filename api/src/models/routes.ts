@@ -127,6 +127,7 @@ const modelRoutes = async (server: FastifyInstance) => {
     server.post('/models/:id/copy', { preHandler: [server.authenticate] }, async (request, reply) => {
         try {
             const { id: modelId } = request.params as { id: string };
+            const body: any = (request as any).body || {};
 
             const modelRes = await pool.query('SELECT * FROM models WHERE id = $1', [modelId]);
             if (modelRes.rows.length === 0) {
@@ -141,15 +142,20 @@ const modelRoutes = async (server: FastifyInstance) => {
                 return reply.code(409).send({ message: 'Model already exists at both locations.' });
             }
 
-            let sourcePath: string | null = null;
+            let sourcePath: string | null = body.sourcePath || null;
             let destPath: string | null = null;
-            if (hasPrimary) {
-                sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
-                destPath = path.join(NET_STORAGE_ROOT, model.author, model.repo, model.revision);
-            } else if (hasNet) {
-                sourcePath = model.locations.find((loc: string) => loc.startsWith(NET_STORAGE_ROOT));
-                destPath = path.join(STORAGE_ROOT, model.author, model.repo, model.revision);
-            } else {
+            const destPref: string | null = body.destinationRoot === 'network' ? NET_STORAGE_ROOT : (body.destinationRoot === 'primary' ? STORAGE_ROOT : null);
+            if (!sourcePath) {
+                if (hasPrimary) {
+                    sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
+                } else if (hasNet) {
+                    sourcePath = model.locations.find((loc: string) => loc.startsWith(NET_STORAGE_ROOT));
+                }
+            }
+            const defaultDestRoot = hasPrimary ? NET_STORAGE_ROOT : STORAGE_ROOT;
+            const destRoot = destPref || defaultDestRoot;
+            destPath = path.join(destRoot, model.author, model.repo, model.revision);
+            if (!sourcePath) {
                 return reply.code(400).send({ message: 'Model has no known on-disk location to copy from.' });
             }
 
@@ -281,10 +287,11 @@ const modelRoutes = async (server: FastifyInstance) => {
         }
     });
 
-    // Move model: allowed only from /media/models -> /media/netmodels; copy, verify, then delete source
+    // Move model: allowed across roots; UI may specify sourcePath and destinationRoot
     server.post('/models/:id/move', { preHandler: [server.authenticate] }, async (request, reply) => {
         try {
             const { id: modelId } = request.params as { id: string };
+            const body: any = (request as any).body || {};
             const modelRes = await pool.query('SELECT * FROM models WHERE id = $1', [modelId]);
             if (modelRes.rows.length === 0) {
                 return reply.code(404).send({ message: 'Model not found' });
@@ -294,21 +301,26 @@ const modelRoutes = async (server: FastifyInstance) => {
             const hasPrimary = model.locations.some((loc: string) => loc.startsWith(STORAGE_ROOT));
             const hasNet = model.locations.some((loc: string) => loc.startsWith(NET_STORAGE_ROOT));
 
-            // Only allow moving when it exists only in primary
-            if (hasPrimary && !hasNet) {
-                // move from primary to netmodels
-                const sourcePath = model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT));
-                const destPath = path.join(NET_STORAGE_ROOT, model.author, model.repo, model.revision);
-                const jobRes = await pool.query(
-                    'INSERT INTO fs_jobs (model_id, type, source_path, destination_path, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-                    [modelId, 'move', sourcePath, destPath, 'queued']
-                );
-                const jobId = jobRes.rows[0].id;
-                fsQueue.add(() => processFsJob(jobId));
-                return reply.code(202).send({ message: 'Move job started', jobId });
-            } else {
-                return reply.code(409).send({ message: 'Move is only enabled when the model exists only in /media/models.' });
+            let sourcePath: string | null = body.sourcePath || null;
+            if (!sourcePath) {
+                sourcePath = hasPrimary ? model.locations.find((loc: string) => loc.startsWith(STORAGE_ROOT))
+                                        : model.locations.find((loc: string) => loc.startsWith(NET_STORAGE_ROOT));
             }
+            if (!sourcePath) return reply.code(400).send({ message: 'Model has no known on-disk source path.' });
+
+            const destPref: string | null = body.destinationRoot === 'network' ? NET_STORAGE_ROOT : (body.destinationRoot === 'primary' ? STORAGE_ROOT : null);
+            // Default: move to the opposite root
+            const defaultDestRoot = sourcePath.startsWith(STORAGE_ROOT) ? NET_STORAGE_ROOT : STORAGE_ROOT;
+            const destRoot = destPref || defaultDestRoot;
+            const destPath = path.join(destRoot, model.author, model.repo, model.revision);
+
+            const jobRes = await pool.query(
+                'INSERT INTO fs_jobs (model_id, type, source_path, destination_path, status) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+                [modelId, 'move', sourcePath, destPath, 'queued']
+            );
+            const jobId = jobRes.rows[0].id;
+            fsQueue.add(() => processFsJob(jobId));
+            return reply.code(202).send({ message: 'Move job started', jobId });
         } catch (error) {
             console.error('Error starting move job:', error);
             reply.code(500).send({ message: 'Failed to start move job.' });

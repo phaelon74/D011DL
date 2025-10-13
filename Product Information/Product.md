@@ -236,7 +236,7 @@ All non-auth routes accept **JWT** in `Authorization: Bearer <token>`.
   2) Create a `downloads` row with `queued`.  
   3) Start a job (in-process queue) that:
      - Ensures directory: `${STORAGE_ROOT}/${author}/${repo}/${revision}`
-     - Streams files sequentially or with bounded concurrency (e.g., 3 at a time).
+     - Streams files sequentially or with bounded concurrency (e.g., 3 at a time) using Higgingface_cli.
      - Updates `model_files.status` as it goes.  
      - On complete: set `models.is_downloaded=true` if all requested files are `done`; update counts/sizes.
 - `GET /downloads/:id` → job status `{status, progress_pct, started_at, finished_at, log}`  
@@ -556,7 +556,7 @@ GET /db/models?author=TheDrummer&repo=Behemoth-R1-123B-v2
 ## 13) Acceptance criteria (Definition of Done)
 
 - **Networking**
-  - `docker-compose up -d` starts both containers on `modelnet`.
+  - `docker-compose up -d` starts both containers on `D011DLnet`.
   - `web` can reach `api` via `http://api:32002` (internal).
 - **Auth**
   - Can register/login; bcrypt hashes stored; JWT protects private endpoints.

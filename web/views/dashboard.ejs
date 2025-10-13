@@ -26,7 +26,7 @@
             <tr>
                 <th>Author</th>
                 <th>Repo</th>
-                <th>Revision</th>
+                <th>Revision(s)</th>
                 <th>Status / Progress</th>
                 <th>Last Status / Speed</th>
                 <th>Location(s)</th>
@@ -34,7 +34,61 @@
             </tr>
         </thead>
         <tbody>
-            <% if (models && models.length > 0) { %>
+            <% if (groups && groups.length > 0) { %>
+                <% groups.forEach((group, gi) => { %>
+                    <tr>
+                        <td><%= group.author %></td>
+                        <td><%= group.repo %></td>
+                        <td>
+                            <div style="display:flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px;">
+                                <% group.revisions.forEach((rev) => { %>
+                                    <% const job_status = rev.job_status; %>
+                                    <% const badgeBg = (job_status === 'running' || job_status === 'queued') ? '#fff4e5' : (job_status === 'failed' ? '#ffe6e6' : '#e6ffed'); %>
+                                    <% const badgeBorder = (job_status === 'running' || job_status === 'queued') ? '#ffb84d' : (job_status === 'failed' ? '#ff4d4d' : '#2ecc71'); %>
+                                    <span style="padding:2px 6px; border-radius:12px; border:1px solid <%= badgeBorder %>; background:<%= badgeBg %>; font-size:12px;">
+                                        <strong><%= rev.revision %></strong>
+                                        <% if (job_status) { %>
+                                            <span style="opacity:0.7;">(<%= job_status %>)</span>
+                                        <% } %>
+                                    </span>
+                                <% }) %>
+                            </div>
+                            <div>
+                                <label for="rev-select-<%= gi %>">Action revision:</label>
+                                <select id="rev-select-<%= gi %>" data-group="<%= gi %>" onchange="updateLocationsForGroup(<%= gi %>)">
+                                    <% group.revisions.forEach((rev) => { %>
+                                        <option value="<%= rev.id %>"><%= rev.revision %></option>
+                                    <% }) %>
+                                </select>
+                            </div>
+                        </td>
+                        <td>—</td>
+                        <td>—</td>
+                        <td>
+                            <div>
+                                <label for="loc-select-<%= gi %>">Source path:</label>
+                                <select id="loc-select-<%= gi %>"></select>
+                            </div>
+                            <div style="margin-top:6px;">
+                                <label for="dest-root-<%= gi %>">Destination:</label>
+                                <select id="dest-root-<%= gi %>">
+                                    <option value="primary">Primary (/media/models)</option>
+                                    <option value="network">Network (/media/netmodels)</option>
+                                </select>
+                            </div>
+                        </td>
+                        <td>
+                            <div style="display:flex; gap:6px; flex-wrap: wrap;">
+                                <button type="button" onclick="submitGroupAction(<%= gi %>, 'copy')">Copy</button>
+                                <button type="button" onclick="submitGroupAction(<%= gi %>, 'move')">Move</button>
+                                <button type="button" onclick="submitGroupAction(<%= gi %>, 'delete')">Delete</button>
+                                <button type="button" onclick="submitGroupAction(<%= gi %>, 'rescan')">Rescan</button>
+                                <button type="button" onclick="submitGroupAction(<%= gi %>, 'hfup')">HFUP</button>
+                            </div>
+                        </td>
+                    </tr>
+                <% }) %>
+            <% } else if (models && models.length > 0) { %>
                 <% models.forEach(model => { %>
                     <% 
                         // Show rows when there is any model record
@@ -168,5 +222,84 @@
     </select>
     <span id="refreshTimer"></span>
 </div>
+
+<script>
+    // Client-side helpers for grouped actions
+    const groupData = <%- JSON.stringify(groups || []) %>;
+
+    function getSelectedModel(groupIndex) {
+        const select = document.getElementById('rev-select-' + groupIndex);
+        const modelId = select ? select.value : null;
+        const group = groupData[groupIndex];
+        const model = group && modelId ? (group.revisions.find(r => r.id === modelId) || null) : null;
+        return { modelId, model };
+    }
+
+    function updateLocationsForGroup(groupIndex) {
+        const { model } = getSelectedModel(groupIndex);
+        const locSelect = document.getElementById('loc-select-' + groupIndex);
+        if (!locSelect) return;
+        while (locSelect.firstChild) locSelect.removeChild(locSelect.firstChild);
+        const locations = (model && Array.isArray(model.locations) && model.locations.length > 0) ? model.locations : (model && model.root_path ? [model.root_path] : []);
+        (locations || []).forEach(loc => {
+            const opt = document.createElement('option');
+            opt.value = loc;
+            opt.textContent = loc;
+            locSelect.appendChild(opt);
+        });
+    }
+
+    function submitPost(url, payload) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = url;
+        for (const [k, v] of Object.entries(payload || {})) {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = k;
+            input.value = typeof v === 'string' ? v : JSON.stringify(v);
+            form.appendChild(input);
+        }
+        document.body.appendChild(form);
+        form.submit();
+    }
+
+    function submitGroupAction(groupIndex, action) {
+        const { modelId, model } = getSelectedModel(groupIndex);
+        if (!modelId) return;
+        const sourcePathSelect = document.getElementById('loc-select-' + groupIndex);
+        const sourcePath = sourcePathSelect && sourcePathSelect.value ? sourcePathSelect.value : undefined;
+        const destRootSel = document.getElementById('dest-root-' + groupIndex);
+        const destinationRoot = destRootSel ? destRootSel.value : undefined;
+
+        if (action === 'delete') {
+            window.location.href = '/delete-model/' + modelId;
+            return;
+        }
+        if (action === 'copy') {
+            submitPost('/copy-model/' + modelId, { sourcePath, destinationRoot });
+            return;
+        }
+        if (action === 'move') {
+            submitPost('/move-model/' + modelId, { sourcePath, destinationRoot });
+            return;
+        }
+        if (action === 'rescan') {
+            submitPost('/models/' + modelId + '/rescan', {});
+            return;
+        }
+        if (action === 'hfup') {
+            // Allow revision override to match selected model's revision
+            const rev = model && model.revision ? model.revision : undefined;
+            submitPost('/hf-upload/' + modelId, { revision: rev });
+            return;
+        }
+    }
+
+    // Initialize location selects on load
+    document.addEventListener('DOMContentLoaded', function() {
+        (groupData || []).forEach((g, gi) => updateLocationsForGroup(gi));
+    });
+</script>
 
 <%- include('partials/footer') %>
