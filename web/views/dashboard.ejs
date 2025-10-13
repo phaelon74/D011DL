@@ -62,8 +62,8 @@
                                 </select>
                             </div>
                         </td>
-                        <td>—</td>
-                        <td>—</td>
+                        <td id="status-cell-<%= gi %>" class="status-cell">—</td>
+                        <td id="last-cell-<%= gi %>">—</td>
                         <td>
                             <div>
                                 <label for="loc-select-<%= gi %>">Source path:</label>
@@ -247,6 +247,77 @@
             opt.textContent = loc;
             locSelect.appendChild(opt);
         });
+        updateStatusForGroup(groupIndex);
+    }
+
+    function formatBytesMB(n) {
+        if (!n || isNaN(n)) return '—';
+        return (n / 1024 / 1024).toFixed(2) + ' MB';
+    }
+
+    function updateStatusForGroup(groupIndex) {
+        const { model } = getSelectedModel(groupIndex);
+        const statusCell = document.getElementById('status-cell-' + groupIndex);
+        const lastCell = document.getElementById('last-cell-' + groupIndex);
+        if (!statusCell || !lastCell) return;
+
+        // Clear existing
+        statusCell.innerHTML = '—';
+        lastCell.innerHTML = '—';
+
+        if (!model) return;
+
+        const jobStatus = model.job_status;
+        const jobType = model.job_type;
+        const totalBytes = model.total_bytes || 0;
+        const bytesDone = model.bytes_downloaded || 0;
+        const started = model.job_started_at ? new Date(model.job_started_at) : null;
+        const finished = model.job_finished_at ? new Date(model.job_finished_at) : null;
+
+        if (jobStatus === 'running' || jobStatus === 'queued') {
+            const label = jobType === 'download' ? 'Downloading' : (jobType === 'copy' ? 'Copying' : (jobType === 'move' ? 'Moving' : (jobType === 'upload' ? 'Uploading to HF' : 'Working')));
+            const strong = document.createElement('div');
+            strong.className = 'status-running';
+            strong.innerHTML = '<strong>' + (jobStatus === 'queued' ? 'Queued' : label + '...') + '</strong>';
+            statusCell.appendChild(strong);
+            if (jobStatus === 'running' && totalBytes > 0) {
+                const prog = document.createElement('progress');
+                prog.max = totalBytes;
+                prog.value = bytesDone;
+                statusCell.appendChild(prog);
+                const txt = document.createElement('div');
+                txt.className = 'progress-text';
+                txt.textContent = formatBytesMB(bytesDone) + ' / ' + formatBytesMB(totalBytes);
+                statusCell.appendChild(txt);
+            }
+        } else if (jobStatus === 'failed') {
+            const div = document.createElement('div');
+            div.className = 'status-failed';
+            div.textContent = 'failed';
+            statusCell.appendChild(div);
+        } else if (model.is_downloaded || (Array.isArray(model.locations) && model.locations.length > 0)) {
+            const div = document.createElement('div');
+            div.className = 'status-succeeded';
+            div.textContent = 'succeeded';
+            statusCell.appendChild(div);
+        }
+
+        // Last status / speed cell
+        if (model.job_id && model.job_status === 'succeeded') {
+            const mb = totalBytes / 1024 / 1024;
+            const durationSec = (started && finished) ? Math.max(0, (finished - started) / 1000) : null;
+            const speedMBs = (durationSec && durationSec > 0) ? (mb / durationSec) : null;
+            const top = document.createElement('div');
+            top.innerHTML = '<strong>' + (jobType === 'download' ? 'Download' : (jobType === 'copy' ? 'Copy' : 'Move')) + '</strong>';
+            const speed = document.createElement('div');
+            speed.textContent = speedMBs !== null ? speedMBs.toFixed(2) + ' MB/s' : '—';
+            const time = document.createElement('div');
+            time.textContent = durationSec !== null ? durationSec.toFixed(1) + ' s' : '—';
+            lastCell.innerHTML = '';
+            lastCell.appendChild(top);
+            lastCell.appendChild(speed);
+            lastCell.appendChild(time);
+        }
     }
 
     function submitPost(url, payload) {
